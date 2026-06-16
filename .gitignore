@@ -1,0 +1,8 @@
+node_modules/
+.env
+data/
+!data/
+data/*
+!data/.gitkeep
+persona/*.local.md
+

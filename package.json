@@ -1,0 +1,22 @@
+{
+  "name": "line-persona",
+  "version": "0.1.0",
+  "description": "A minimal LINE-native AI persona bot scaffold.",
+  "main": "src/server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/server.js"
+  },
+  "keywords": [
+    "line",
+    "bot",
+    "persona",
+    "llm"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@line/bot-sdk": "^10.2.0",
+    "dotenv": "^16.6.1",
+    "express": "^4.21.2"
+  }
+}
