@@ -17,7 +17,7 @@
 ## 架構地圖（你動手前先讀懂）
 
 ```
-src/server.js        ── LINE webhook 入口：簽章驗證、event 路由、reply/push、群組存 groupId
+src/server.js        ── LINE webhook 入口：簽章驗證、event 路由、reply、群組存 groupId(供日後主動 push)
 src/brain.js         ── 「大腦插孔」：handleMessage(ctx) -> string。預設組 persona prompt 後呼 llm
 src/adapters/llm.js  ── 單一 LLM adapter，OpenAI-compatible，全參數走 .env
 src/persona.js       ── 開機讀 persona/*.md 組成 system prompt

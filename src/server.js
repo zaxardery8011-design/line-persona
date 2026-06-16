@@ -33,7 +33,7 @@ app.post('/webhook', lineMiddleware(), async (req, res) => {
     const results = await Promise.all(req.body.events.map(handleEvent));
     res.status(200).json(results);
   } catch (error) {
-    console.error('Webhook handling failed:', error);
+    console.error('Webhook handling failed:', error.message);
     res.status(500).end();
   }
 });
