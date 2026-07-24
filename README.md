@@ -6,6 +6,18 @@ line-persona 是一個最小可跑的 LINE 原生 AI 分身框架。你只要填
 
 > 📖 **不會寫程式？看 [白話使用手冊（使用手冊.md）](使用手冊.md)** — 教你怎麼「直接叫 AI（Claude Code / Codex）幫你架」，自己一行程式都不用碰；也教怎麼蒸餾大量資料、進階掛資料庫（RAG）。
 
+## 玩玩看｜Try the live bot
+
+**這個框架不是空殼——我們自己就在用它養一個活的 LINE bot。** line-persona 的活人 demo（作者本人的主腦）現在在線上，掃碼加好友、丟一句話過去，就能親身體驗「LINE 原生分身」跑起來什麼樣；覺得好玩再照下面 Quick Start 養一個自己的。
+
+🔥 **加好友（LINE ID：`@395jcpsb`）**：https://line.me/R/ti/p/@395jcpsb
+
+<p align="center">
+  <img src="docs/line-qr.png" alt="Add line-persona demo bot on LINE" width="180">
+</p>
+
+> _This repo ships with a **live LINE bot** you can talk to right now — scan the QR or open the link above to chat with the line-persona demo before you build your own._
+
 ## 5 分鐘上線
 
 ### 1. 申請 LINE Messaging API channel
