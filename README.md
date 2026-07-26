@@ -1,5 +1,11 @@
 # line-persona
 
+> **填三個檔，就有一隻活在 LINE 上、講你的話、用你自己選的模型的 AI 分身。**
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Node](https://img.shields.io/badge/node-%3E%3D18-brightgreen.svg)](https://nodejs.org/)
+[![Stars](https://img.shields.io/github/stars/zaxardery8011-design/line-persona?style=social)](https://github.com/zaxardery8011-design/line-persona/stargazers)
+
 line-persona 是一個最小可跑的 LINE 原生 AI 分身框架。你只要填 `.env`、改 `persona/profile.md` 和 `persona/knowledge.md`，就能把自己的基本資料接到 LINE bot，並自由切換雲端或本地 LLM。
 
 市面上的 Dify、Open WebUI、AnythingLLM 多半是 Web-first 平台，對非工程師來說設定較重，LINE 原生整合也不一定直覺。本專案填的縫隙是：LINE 原生、低門檻、餵自己資料、雲端或本地模型隨切的一鍵分身框。
@@ -17,6 +23,18 @@ line-persona 是一個最小可跑的 LINE 原生 AI 分身框架。你只要填
 </p>
 
 > _This repo ships with a **live LINE bot** you can talk to right now — scan the QR or open the link above to chat with the line-persona demo before you build your own._
+
+## 幫自己裝一台（3 步）
+
+| # | 做什麼 | 一句話 |
+|---|---|---|
+| 1 | **拿鑰匙** | 到 LINE Developers 開一個 Messaging API channel，複製 channel access token 與 channel secret |
+| 2 | **填三個檔** | `.env`（鑰匙＋要用哪個模型）、`persona/profile.md`（你的口吻）、`persona/knowledge.md`（你的資料） |
+| 3 | **跑起來、接對外** | `npm install && npm start`，再用 `tailscale funnel 3000` 拿一組 HTTPS 網址，LINE webhook 填 `<你的網址>/webhook` |
+
+需要 **Node 18 以上**（程式直接用內建 `fetch`，18 以下會壞）。
+
+每一步的細節在下面〈5 分鐘上線〉；**完全不想碰終端機**的話，[白話使用手冊](使用手冊.md) 教你怎麼叫 AI（Claude Code／Codex）整套幫你做完。
 
 ## 5 分鐘上線
 
