@@ -1,0 +1,93 @@
+name: 🐛 回報問題 / Bug report
+description: 架不起來、跑起來怪怪的、或訊息回不了 — Something is broken
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感謝回報！請盡量填下面幾格，我們會**在 24 小時內至少給第一個回應**。
+
+        ⚠️ **請不要貼你的金鑰**：`LINE_CHANNEL_ACCESS_TOKEN`、`LINE_CHANNEL_SECRET`、`LLM_API_KEY`
+        貼 log 前請先把這些換成 `***`。
+
+        _Thanks for reporting. Please redact all tokens/keys before pasting logs._
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: 發生什麼事 / What happened
+      description: 你原本預期會怎樣、實際上怎樣。
+      placeholder: |
+        預期：LINE 傳訊息會收到分身回覆
+        實際：完全沒回覆，終端機也沒有任何輸出
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: 重現步驟 / Steps to reproduce
+      description: 一步一步寫，我們照著做就能重現。
+      placeholder: |
+        1. cp .env.example .env，填入 OpenAI 的 key
+        2. npm install && npm start
+        3. curl http://localhost:3000/ → 有回 line-persona is running
+        4. 用 LINE 傳「哈囉」→ 沒有任何回應
+    validations:
+      required: true
+
+  - type: dropdown
+    id: stage
+    attributes:
+      label: 卡在哪一步 / Which step
+      options:
+        - 安裝（npm install）
+        - 啟動（npm start）
+        - 對外網址 / webhook 設定
+        - LINE 收得到訊息但沒回覆
+        - 有回覆但內容不對（人格 / 知識沒吃到）
+        - 蒸餾腳本（distill.js）
+        - 其他 / Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: brain
+    attributes:
+      label: 用哪個大腦 / LLM backend
+      options:
+        - 雲端 OpenAI
+        - 雲端 Gemini / Claude（走 OpenAI-compatible gateway）
+        - 本地 Ollama
+        - 其他 OpenAI-compatible 服務
+    validations:
+      required: true
+
+  - type: input
+    id: env
+    attributes:
+      label: 環境 / Environment
+      description: 作業系統 + Node 版本（`node -v`）。
+      placeholder: "Windows 11 / Node v20.11.1"
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 終端機輸出 / Logs
+      description: 貼上錯誤訊息（**金鑰請先塗掉**）。會自動用程式碼區塊呈現，不用加反引號。
+      render: shell
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: 送出前確認 / Before submitting
+      options:
+        - label: 我已經確認貼上的內容**不含任何金鑰或 token**
+          required: true
+        - label: 我看過 [使用手冊.md](../../使用手冊.md) 與 [README.md](../../README.md)，還是沒解決
+          required: true

@@ -1,0 +1,63 @@
+name: 💡 功能提案 / Feature request
+description: 想到可以更好用的地方 — Suggest an improvement
+title: "[Feature] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        這個專案刻意保持最簡（低門檻優先）。提案前請幫我們回答一個問題：
+        **「不做會怎樣？」** — 這是我們決定要不要做的主要依據。
+
+        _This project deliberately stays minimal. The key question is: what breaks if we don't do this?_
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: 你遇到的問題 / The problem
+      description: 先講問題，不用先講解法。
+      placeholder: 我的知識檔太大，每次回覆都很慢又貴。
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 你希望怎麼解 / Proposed solution
+      placeholder: 希望能有選項只把最相關的幾段餵給模型。
+    validations:
+      required: true
+
+  - type: textarea
+    id: no-op
+    attributes:
+      label: 不做會怎樣 / What happens if we don't
+      description: 有沒有現成的繞法（例如改自己 fork 的 `src/brain.js`）？
+      placeholder: 現在可以自己改 brain.js 繞過，但每次更新 repo 都要重接一次。
+    validations:
+      required: true
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: 影響範圍 / Scope
+      options:
+        - 文件 / 說明
+        - 上手流程（安裝、設定、webhook）
+        - 大腦插孔 src/brain.js
+        - LLM adapter
+        - LINE 訊息處理
+        - 蒸餾 distill.js
+        - 其他 / Other
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: 送出前確認 / Before submitting
+      options:
+        - label: 我確認這個提案**不會**讓「5 分鐘上線」這件事變複雜，或我已在上面說明為何值得
+          required: true
+        - label: 我願意自己動手做這個（可選，勾了我們會優先幫你把方向講清楚）
+          required: false
