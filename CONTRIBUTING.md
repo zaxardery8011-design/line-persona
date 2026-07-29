@@ -90,10 +90,12 @@ PR 標題就用 commit 慣例的格式，例如：`docs: add Linux quick start n
 
 ## 回報與回覆時效
 
-- **issue 開出來後，我們承諾 24 小時內至少給第一個回應**（就算只是「收到，這週看」）。
-  如果超過 24 小時沒人理你，直接在該 issue 底下 `@` 一下——那是我們漏掉了，不是你打擾。
+- issue 開出來後，我們**盡量在 48–72 小時內給第一個回應**（就算只是「收到，這週看」）。
+  這是一個小團隊維護的專案，偶爾會慢一點；如果過了幾天都沒人理你，直接在該 issue 底下 `@` 一下——那多半是我們漏掉了，不是你打擾。
 - 標了 `good first issue` 的，會盡量把背景與驗收條件寫清楚，讓第一次貢獻的人不用猜。
-- 安全性問題（金鑰外洩風險、注入等）**請不要開公開 issue**，先私下聯絡維護者。
+- 安全性問題（金鑰外洩風險、注入等）**請不要開公開 issue**，
+  請寄到 **zaxardery8011@gmail.com**，標題請加上 `[line-persona security]`。
+  _Security issues: please email zaxardery8011@gmail.com instead of opening a public issue._
 
 ---
 

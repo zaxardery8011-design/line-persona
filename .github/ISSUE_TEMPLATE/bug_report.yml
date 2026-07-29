@@ -6,10 +6,12 @@ body:
   - type: markdown
     attributes:
       value: |
-        感謝回報！請盡量填下面幾格，我們會**在 24 小時內至少給第一個回應**。
+        感謝回報！請盡量填下面幾格，我們會**盡量在 48–72 小時內給第一個回應**。
 
         ⚠️ **請不要貼你的金鑰**：`LINE_CHANNEL_ACCESS_TOKEN`、`LINE_CHANNEL_SECRET`、`LLM_API_KEY`
         貼 log 前請先把這些換成 `***`。
+
+        🔒 安全性問題（金鑰外洩風險、注入等）請**不要開這張表**，改寄 `zaxardery8011@gmail.com`。
 
         _Thanks for reporting. Please redact all tokens/keys before pasting logs._
 

@@ -5,4 +5,7 @@ contact_links:
     about: 不會寫程式也能架起來 — 大部分「架不起來」的問題這裡有答案。
   - name: 🤖 直接問活的 demo bot / Ask the live demo bot
     url: https://line.me/R/ti/p/@395jcpsb
-    about: 這個框架養出來的分身本人在線上，安裝問題可以直接丟給它。安全性問題也請走這條私下回報，不要開公開 issue。
+    about: 這個框架養出來的分身本人在線上，安裝問題可以直接丟給它。
+  - name: 🔒 回報安全性問題 / Report a security issue
+    url: mailto:zaxardery8011@gmail.com?subject=%5Bline-persona%20security%5D
+    about: 金鑰外洩風險、注入等安全性問題請寄 email，不要開公開 issue，也不要丟給 demo bot（那條訊息會經過 LLM）。
