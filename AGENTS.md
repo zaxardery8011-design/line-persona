@@ -21,6 +21,7 @@ src/server.js        ── LINE webhook 入口：簽章驗證、event 路由、
 src/brain.js         ── 「大腦插孔」：handleMessage(ctx) -> string。預設組 persona prompt 後呼 llm
 src/adapters/llm.js  ── 單一 LLM adapter，OpenAI-compatible，全參數走 .env
 src/persona.js       ── 開機讀 persona/*.md 組成 system prompt
+src/escalation.js    ── 【選配·預設關閉】轉真人閉環。沒開時 brain.js 那一呼叫直接原樣返回
 persona/profile.md   ── 分身人格（誰、口吻、邊界）  ← 使用者要改的
 persona/knowledge.md ── 分身知識（FAQ、基本資訊）    ← 使用者要改的
 .env.example         ── 設定範本（複製成 .env 填）
@@ -56,6 +57,92 @@ data/                ── 執行期資料（groups.json 等），已 gitignore
   優先用**輕量、免另架伺服器**的本地檔案型向量庫，別拉重型相依。
 - **媒體訊息**：`src/server.js` 對 image/file/audio 目前只回提示，已留 future hook，可依需求接圖片理解 / 語音轉文字。
 - **主動推播**：`data/groups.json` 已存 groupId，可加排程推播。
+
+- **轉真人閉環（客服場景才要，預設關閉）**：見下一節。**使用者沒說要，就不要打開。**
+
+---
+
+## 📮 轉真人閉環（`src/escalation.js`）— 選配，預設關閉
+
+### 什麼時候才該打開
+
+**預設是關的，而且多數人應該讓它一直關著。**
+
+一個人自己玩的分身不需要「轉真人」——沒有真人要接。但如果使用者是拿它做**客服**
+（店家、接案、報價），那答不出來時就必須有人接手，否則會發生下面這件事：
+
+`persona/profile.md` 的範本、`使用手冊.md` 都教使用者寫「不確定就說轉真人」。
+分身照做了，說出「我幫你轉達真人，請稍候」——**然後沒有然後**。
+框架本身沒有任何機制去兌現這句話。使用者等著，沒有人知道他在等。
+
+打開這個模組，才有人知道。
+
+### 怎麼打開（三個變數）
+
+在 `.env` 加：
+
+```env
+ESCALATION_ENABLED=1
+ESCALATION_NOTIFY_TO=Uxxxxxxxx,Uyyyyyyyy
+```
+
+| 變數 | 預設 | 說明 |
+|---|---|---|
+| `ESCALATION_ENABLED` | 空（＝關） | 設 `1` 才啟用。**留空時行為跟沒有這個檔一模一樣。** |
+| `ESCALATION_NOTIFY_TO` | 空 | 誰來回答，LINE userId，逗號分隔。**至少兩個**，理由見咽喉 1。 |
+| `ESCALATION_NOTIFY_SKIP_ASKER` | 空（＝不跳過） | 設 `1` 才會在通知時略過提問者本人。**建議不要設**，理由見咽喉 1。 |
+| `ESCALATION_TRIGGERS` | 內建清單 | 判斷「答不出來」的關鍵詞，`\|` 分隔。**要跟 `persona/profile.md` 寫的講法對得上**，否則永遠不開單。 |
+| `ESCALATION_DEDUPE_MIN` | `60` | 同一人幾分鐘內重問算同一張單。 |
+| `ESCALATION_MAX_REMINDERS` | `5` | 同一張單最多重推幾次，避免無限重推。 |
+| `ESCALATION_ACK_TEXT` | 內建一句 | 開單後附給提問者的話；留空則不附加。 |
+
+> ⚠️ `.env.example` 尚未收錄這幾個變數（見 README 同一節的註記），請直接照上表手動加到 `.env`。
+
+轉診單寫在 `data/escalations/`，`data/` 已被 `.gitignore` 擋住，**不會進 git**。
+
+### 回答者怎麼用（CLI，不用開後台）
+
+```bash
+node src/escalation.js list                          # 看待回覆
+node src/escalation.js claim <你的LINEuserId>         # 取一張（最舊優先，urgent 插隊）
+node src/escalation.js answer <單號> "答案"            # 先存草稿，使用者端收不到
+node src/escalation.js answer <單號> "答案" --send     # 確認後才真的推回去
+node src/escalation.js stale 3                       # 超過 3 天沒人回的
+node src/escalation.js remind 3                      # 重推提醒（dry-run，加 --send 才真推）
+```
+
+### 🩸 三個咽喉（照抄架構很容易，這三個坑抄不到）
+
+這三個不是設計上的顧慮，是一套跑了三個月的系統用 26 筆卡單、最久 94.1 天換來的。
+**改這個模組時，先確認你沒有把下面任何一條拆掉。**
+
+1. **通知對象為 0 必須留下紀錄，不准靜默**（`src/escalation.js` `notifyResponders()`）
+   「跳過提問者本人」看起來完全合理——直到回答者名單只有一個人、而那個人正是最大量的提問者。
+   他自己問倒 bot 時 `targets` 變空陣列，迴圈一圈都不跑，**一個人都沒被通知**。
+   磁碟上「開了單」和「有人知道這張單」長得一模一樣，都只是一個 `status:pending` 的檔。
+   → 所以 `targets.length === 0` 會寫進 `data/escalations/_notify_failures.jsonl`。
+   **驗收**：讓唯一的回答者自己問一題，那個 jsonl 必須多一行。
+
+2. **通知只發一次就沒有下文 = 卡 94 天的真正成因**（`listStale()` / `remind()`）
+   開單推一次通知，就這一次。那次被滑掉，這張單就永遠躺在磁碟上，沒有任何東西會再提起它。
+   → 所以有 `stale` / `remind`。**排程刻意不內建**（那是使用者環境的事），
+   請用 Windows 工作排程器或 cron 每天跑一次 `node src/escalation.js remind 3 --send`。
+   **驗收（負向）**：手動把一張單的 `ts` 改成 10 天前 → 跑 `stale 3` → **它必須出現在輸出裡**。
+   只驗「指令 exit 0」不算。
+
+3. **回覆流程的狀態要落磁碟，不能放記憶體**（`claim()` / `skip()` / `defer()` → `_flow_state.json`）
+   原本的實作把「取單→作答→確認」存在記憶體 Map、TTL 10 分鐘。某次回答者連續清掉 9 筆，
+   停在第 10 筆——第 8 到第 9 筆之間隔了 21.6 分鐘，超過 TTL，進度歸零，人就沒再回來。
+   **那 9 筆是三個月來唯一一次清理。**
+   → 所以 `claim()` 會先把回答者手上那張單還給他，服務重啟也一樣。
+   **驗收**：`claim` 之後重跑 `claim`，**必須回到同一張單**，不是最舊的那張。
+
+### 兩條不可拆的收據規則
+
+- **`status` 只有 `pending` / `resolved`，不要發明第三個。** 兩份真相遲早分岔。
+- **`push_status` 是整份 schema 最重要的欄位。** 它是「答案真的送到使用者手上」的唯一收據。
+  push 失敗時**照樣寫進 `push_status`**，不准 `catch (e) { console.error(e) }` 就結束——
+  那是所有卡單的共同根因：上層永遠拿不到「送到沒」。
 
 ## 🚧 鐵律（任何情況都不可違反）
 

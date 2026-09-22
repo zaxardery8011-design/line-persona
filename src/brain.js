@@ -1,4 +1,5 @@
 const { chat } = require('./adapters/llm');
+const { maybeEscalate } = require('./escalation');
 
 async function handleMessage(ctx) {
   const messages = [
@@ -20,7 +21,8 @@ async function handleMessage(ctx) {
   ];
 
   try {
-    return await chat(messages);
+    // 轉真人閉環是選配的：.env 沒設 ESCALATION_ENABLED 時 maybeEscalate 原樣返回
+    return await maybeEscalate(ctx, await chat(messages));
   } catch (error) {
     console.error('Brain failed:', error.message);
     return '大腦暫時沒有回應，請稍後再試。';

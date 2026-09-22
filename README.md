@@ -172,6 +172,32 @@ LLM_MODEL=llama3.1
 - 群組訊息：照樣處理，並把 `groupId` 記到 `data/groups.json`，日後可用來做主動 push
 - 圖片、檔案、音訊：目前回覆「目前只處理文字訊息」，程式中已留 future hook
 
+## 選配：轉真人閉環（預設關閉）
+
+自己玩的分身不需要這個，所以**預設是關的**——不設任何環境變數時，行為跟沒有這個模組完全一樣。
+
+但如果你拿它做**客服**，就會撞到這件事：`persona/profile.md` 的範本教分身說「不確定就說轉真人」，
+分身照做了，說出「我幫你轉達真人，請稍候」——**然後沒有然後**。框架本身沒有東西去兌現這句話。
+
+`src/escalation.js` 是來兌現它的：答不出來 → 開單（同一人重問會併單）→ 通知回答者 →
+回答者用 CLI 取單作答 → 答案推回原提問者 → **寫下 push 收據**。零新相依，轉診單存在 `data/`（已 gitignore）。
+
+```env
+ESCALATION_ENABLED=1
+ESCALATION_NOTIFY_TO=Uxxxxxxxx,Uyyyyyyyy
+```
+
+```bash
+node src/escalation.js list                       # 看待回覆
+node src/escalation.js claim <你的LINEuserId>      # 取一張
+node src/escalation.js answer <單號> "答案" --send  # 作答並推回去
+```
+
+> `.env.example` 目前還沒收錄這些變數，請照 [`AGENTS.md`](AGENTS.md) 的〈轉真人閉環〉表格手動加進 `.env`。
+
+完整變數表、CLI 用法，以及**三個必須知道的坑**（通知對象為 0、通知不重推、流程狀態放記憶體），
+都在 [`AGENTS.md`](AGENTS.md) 的〈轉真人閉環〉一節。要改這個模組前請先讀那三個坑。
+
 ## License
 
 MIT
