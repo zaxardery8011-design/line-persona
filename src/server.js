@@ -6,6 +6,7 @@ const express = require('express');
 const line = require('@line/bot-sdk');
 const { handleMessage } = require('./brain');
 const { loadPersona } = require('./persona');
+const groupFeed = require('./group');
 
 const port = Number(process.env.PORT || 3000);
 const lineConfig = {
@@ -53,6 +54,14 @@ function lineMiddleware() {
 async function handleEvent(event) {
   if (event.source && event.source.groupId) {
     await rememberGroupId(event.source.groupId);
+
+    // 選配：群組發話政策 / 素材收集（src/group.js）。相關環境變數全空時不會進來。
+    if (groupFeed.enabled() && await groupFeed.handleGroupEvent(event, {
+      persona,
+      channelAccessToken: lineConfig.channelAccessToken
+    })) {
+      return null;
+    }
   }
 
   if (event.type !== 'message') {

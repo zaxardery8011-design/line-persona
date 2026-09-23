@@ -1,7 +1,15 @@
 const { chat } = require('./adapters/llm');
 const { maybeEscalate } = require('./escalation');
+const history = require('./history');
 
 async function handleMessage(ctx) {
+  // 多輪記憶是選配的：.env 沒設 HISTORY_TURNS 時整段略過，只送當句
+  const historyKey = history.enabled() ? history.keyOf(ctx.source) : '';
+  if (historyKey && history.isClearCommand(ctx.text)) {
+    history.clear(historyKey);
+    return history.CLEARED_REPLY;
+  }
+
   const messages = [
     {
       role: 'system',
@@ -14,6 +22,7 @@ async function handleMessage(ctx) {
         ctx.persona
       ].join('\n')
     },
+    ...(historyKey ? history.toMessages(historyKey) : []),
     {
       role: 'user',
       content: ctx.text
@@ -21,8 +30,10 @@ async function handleMessage(ctx) {
   ];
 
   try {
+    const reply = await chat(messages);
+    if (historyKey) history.record(historyKey, ctx.text, reply);
     // 轉真人閉環是選配的：.env 沒設 ESCALATION_ENABLED 時 maybeEscalate 原樣返回
-    return await maybeEscalate(ctx, await chat(messages));
+    return await maybeEscalate(ctx, reply);
   } catch (error) {
     console.error('Brain failed:', error.message);
     return '大腦暫時沒有回應，請稍後再試。';

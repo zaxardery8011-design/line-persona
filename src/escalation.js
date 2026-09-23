@@ -11,6 +11,9 @@
 //
 // **沒設 ESCALATION_ENABLED 時，maybeEscalate() 第一行就原樣返回，不讀檔、不寫檔、不發訊息。**
 //
+// 下文三個「咽喉」註解裡的「真實事故」，出處是作者自己營運的 LINE bot（主腦實驗室，
+// 非本框架的使用者回報）：26 筆待回覆卡單、最久 94.1 天。本模組是把那次修復抽成可選配的通用版。
+//
 // 零新相依：只用 Node 內建 fs / path / crypto / fetch（需要 Node 18+，與本專案一致）。
 //
 // CLI（回答者用）：
@@ -237,38 +240,98 @@ async function listStale(days) {
   return (await listTickets('pending')).filter((t) => ageDays(t) >= threshold);
 }
 
+// 提醒是「每次執行、每位回答者一則彙整」，不是一張單一則。
+// 設計理由：若積了 20 張逾期單，逐張提醒會讓回答者的手機一次連響 20 次——
+// 提醒變成噪音，比沒有提醒更容易被整批滑掉。（同形問題在作者自己營運的 bot 上撞過：
+// 限流名額一輪全落在同一位提問者，差點讓他幾小時內連收好幾則道歉。）
+const DIGEST_MAX_LISTED = 10;
+const DIGEST_MAX_CHARS = 4500;   // LINE 單則上限 5000，留餘裕
+
+function digestText(tickets, days) {
+  const oneLine = (s) => String(s || '').replace(/\s+/g, ' ').trim().slice(0, 40);
+  const listed = tickets.slice(0, DIGEST_MAX_LISTED);   // tickets 已由舊到新排序，最久的在前
+  const lines = [`【逾期未回】${tickets.length} 張單沒人回，最久 ${ageDays(tickets[0]).toFixed(1)} 天`];
+  listed.forEach((t, i) => {
+    lines.push(`${i + 1}. ${t.id}／${ageDays(t).toFixed(1)} 天／${oneLine(t.question)}／已提醒 ${Number(t.reminder_count || 0)} 次`);
+  });
+  if (tickets.length > listed.length) lines.push(`…還有 ${tickets.length - listed.length} 張`);
+  lines.push(`全部：node src/escalation.js stale ${Number(days || 3)}`);
+  return lines.join('\n').slice(0, DIGEST_MAX_CHARS);
+}
+
+// 彙整不屬於任何一張單，所以不借用 notifyResponders()（它的「跳過提問者」與
+// 失敗記錄都綁單張）。失敗一樣寫 _notify_failures.jsonl，ticket_id 標成彙整。
+async function notifyDigest(tickets, text) {
+  const tag = { id: `(remind_digest:${tickets.length})`, userId: '' };
+  const all = responderIds();
+  const skipAsker = String(process.env.ESCALATION_NOTIFY_SKIP_ASKER || '').trim() === '1';
+  // 回答者只在「彙整裡每張都是他自己問的」時才跳過
+  const targets = skipAsker ? all.filter((id) => !tickets.every((t) => t.userId === id)) : all;
+
+  if (targets.length === 0) {
+    await recordNotifyFailure(tag, all.length === 0 ? 'no_responder_configured' : 'no_responder_available');
+    return { attempted: 0, ok: 0 };
+  }
+
+  let ok = 0;
+  for (const to of targets) {
+    try {
+      await linePush(to, text);
+      ok += 1;
+    } catch (error) {
+      await recordNotifyFailure(tag, 'push_failed', error.message);
+    }
+  }
+  if (ok === 0) await recordNotifyFailure(tag, 'all_push_failed');
+  return { attempted: targets.length, ok };
+}
+
 async function remind(days, options) {
   const opts = options || {};
   const send = opts.send === true;
   const maxReminders = Number(process.env.ESCALATION_MAX_REMINDERS || opts.maxReminders || 5);
   const results = [];
+  const due = [];
 
   for (const ticket of await listStale(days)) {
-    const sent = Number(ticket.reminder_count || 0);
-    if (sent >= maxReminders) {
+    if (Number(ticket.reminder_count || 0) >= maxReminders) {
       // 有上限才不會變成無限重推
       results.push({ id: ticket.id, age_days: Number(ageDays(ticket).toFixed(1)), skipped: 'reminder_cap_reached' });
       continue;
     }
+    due.push(ticket);
+  }
 
-    const text = [
-      `【逾期未回】這張單已經 ${ageDays(ticket).toFixed(1)} 天沒有人回`,
-      `單號：${ticket.id}`,
-      `問題：${ticket.question}`,
-      `已提醒 ${sent} 次`
-    ].join('\n');
+  // 0 張就一則都不發
+  if (due.length === 0) {
+    results.push({ summary: true, dry_run: !send, tickets_listed: 0, pushes: 0 });
+    return results;
+  }
 
-    if (!send) {
-      results.push({ id: ticket.id, age_days: Number(ageDays(ticket).toFixed(1)), dry_run: true, would_notify: responderIds().length });
-      continue;
+  const text = digestText(due, days);
+
+  if (!send) {
+    const wouldNotify = responderIds().length;
+    for (const ticket of due) {
+      results.push({ id: ticket.id, age_days: Number(ageDays(ticket).toFixed(1)), dry_run: true, would_notify: wouldNotify });
     }
+    results.push({ summary: true, dry_run: true, tickets_listed: due.length, pushes: wouldNotify, text });
+    return results;
+  }
 
-    const outcome = await notifyResponders(ticket, text);
-    ticket.reminder_count = sent + 1;
-    ticket.last_reminded_at = new Date().toISOString();
-    await writeTicket(ticket);
+  const outcome = await notifyDigest(due, text);
+  const now = new Date().toISOString();
+  for (const ticket of due) {
+    // 一則都沒送到就不算提醒過：否則推播故障期間每跑一次都會吃掉重推額度，
+    // 幾次之後這張單就永遠到上限、再也不會被提起。失敗已記在 _notify_failures.jsonl。
+    if (outcome.ok > 0) {
+      ticket.reminder_count = Number(ticket.reminder_count || 0) + 1;
+      ticket.last_reminded_at = now;
+      await writeTicket(ticket);
+    }
     results.push({ id: ticket.id, age_days: Number(ageDays(ticket).toFixed(1)), attempted: outcome.attempted, ok: outcome.ok });
   }
+  results.push({ summary: true, dry_run: false, tickets_listed: due.length, pushes: outcome.attempted, ok: outcome.ok });
   return results;
 }
 
