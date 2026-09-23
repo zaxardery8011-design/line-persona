@@ -3,6 +3,9 @@ contact_links:
   - name: 📖 先看白話使用手冊 / Read the plain-language guide
     url: https://github.com/zaxardery8011-design/line-persona/blob/master/使用手冊.md
     about: 不會寫程式也能架起來 — 大部分「架不起來」的問題這裡有答案。
+  - name: 🧪 先問主腦實驗室 / Ask Brain Lab on LINE
+    url: https://line.me/R/ti/p/@395jcpsb
+    about: 艦隊的 LINE 官方帳號，由寂寞伯（第二主腦）在顧；安裝問題可以先丟給它。
   - name: 🔒 回報安全性問題 / Report a security issue
     url: mailto:zaxardery8011@gmail.com?subject=%5Bline-persona%20security%5D
-    about: 金鑰外洩風險、注入等安全性問題請寄 email，不要開公開 issue。
+    about: 金鑰外洩風險、注入等安全性問題請寄 email，不要開公開 issue，也不要丟給主腦實驗室（那條訊息會經過 LLM）。

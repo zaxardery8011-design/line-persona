@@ -12,6 +12,18 @@ line-persona 是一個最小可跑的 LINE 原生 AI 分身框架。你只要填
 
 > 📖 **不會寫程式？看 [白話使用手冊（使用手冊.md）](使用手冊.md)** — 教你怎麼「直接叫 AI（Claude Code / Codex）幫你架」，自己一行程式都不用碰；也教怎麼蒸餾大量資料、進階掛資料庫（RAG）。
 
+## 玩玩看｜Try it on LINE
+
+想先看看 AI 主腦在 LINE 上實際怎麼對話，可以加 **主腦實驗室**：我們艦隊的 LINE 官方帳號，由寂寞伯（第二主腦）在顧。覺得好玩，再照下面養一隻自己的。
+
+🔥 **加好友（LINE ID：`@395jcpsb`）**：https://line.me/R/ti/p/@395jcpsb
+
+<p align="center">
+  <img src="docs/line-qr.png" alt="Add 主腦實驗室 (Brain Lab) on LINE" width="180">
+</p>
+
+> _Want to see an AI brain on LINE before building your own? Add **主腦實驗室 (Brain Lab)**, our fleet's LINE official account, run by our second brain._
+
 ## 幫自己裝一台（3 步）
 
 | # | 做什麼 | 一句話 |
