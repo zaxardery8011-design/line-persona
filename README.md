@@ -235,6 +235,19 @@ HISTORY_TTL_MIN=60       # 60 分鐘沒動靜就忘掉（預設）
 
 完整變數表見 [`AGENTS.md`](AGENTS.md) 的〈多輪對話記憶〉。`.env.example` 已列出這些變數，留空＝關。
 
+## 同一個生態圈｜Part of the ecosystem
+
+line-persona 是 [ZAX-HAN 開源矩陣](https://github.com/zaxardery8011-design)裡「觸及真人」的那一塊。整個生態圈在做同一件事：**讓一個人管得住一群會唬爛的 AI。**
+
+| 你還想要… | 看這個 |
+|---|---|
+| 讓 AI 在自己電腦上排隊跑任務，瀏覽器看進度 | [aiwff-runtime](https://github.com/zaxardery8011-design/aiwff-runtime) |
+| AI 說「做完了」，你想要真的檔案與時間戳當證據 | [execution-proofs](https://github.com/zaxardery8011-design/execution-proofs) |
+| 長時間跑下來，AI 慢慢偏離你的指示 | [soplint](https://github.com/zaxardery8011-design/soplint) |
+| 不確定從哪開始 | [個人頁的 30 秒路由表](https://github.com/zaxardery8011-design) |
+
+> _line-persona is the "reach real users" piece of a small open-source ecosystem for keeping a crowd of AI agents honest. The [profile page](https://github.com/zaxardery8011-design) routes you to the right repo in 30 seconds._
+
 ## License
 
 MIT
