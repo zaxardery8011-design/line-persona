@@ -3,6 +3,8 @@ require('dotenv').config();
 const fs = require('fs/promises');
 const path = require('path');
 const express = require('express');
+const cookieParser = require('cookie-parser');
+const csurf = require('csurf');
 const line = require('@line/bot-sdk');
 const { handleMessage } = require('./brain');
 const { loadPersona } = require('./persona');
@@ -25,11 +27,37 @@ const client = new line.messagingApi.MessagingApiClient({
 const app = express();
 const persona = loadPersona();
 
+// /webhook is a server-to-server LINE callback authenticated via HMAC signature
+// verification (lineMiddleware), so it is exempt from cookie-based CSRF checks.
+app.use(cookieParser());
+const csrfProtection = csurf({ cookie: true });
+app.use((req, res, next) => (req.path === '/webhook' ? next() : csrfProtection(req, res, next)));
+
+const RATE_LIMIT_WINDOW_MS = 60 * 1000;
+const RATE_LIMIT_MAX_REQUESTS = 30;
+const rateLimitHits = new Map();
+
+function webhookRateLimiter(req, res, next) {
+  const key = req.ip;
+  const now = Date.now();
+  const windowStart = now - RATE_LIMIT_WINDOW_MS;
+  const hits = (rateLimitHits.get(key) || []).filter((ts) => ts > windowStart);
+
+  if (hits.length >= RATE_LIMIT_MAX_REQUESTS) {
+    res.status(429).json({ error: 'Too many requests, please try again later.' });
+    return;
+  }
+
+  hits.push(now);
+  rateLimitHits.set(key, hits);
+  next();
+}
+
 app.get('/', (_req, res) => {
   res.status(200).send('line-persona is running');
 });
 
-app.post('/webhook', lineMiddleware(), async (req, res) => {
+app.post('/webhook', webhookRateLimiter, lineMiddleware(), async (req, res) => {
   try {
     const results = await Promise.all(req.body.events.map(handleEvent));
     res.status(200).json(results);
