@@ -97,7 +97,7 @@ ESCALATION_NOTIFY_TO=Uxxxxxxxx,Uyyyyyyyy
 | `ESCALATION_MAX_REMINDERS` | `5` | 同一張單最多重推幾次，避免無限重推。 |
 | `ESCALATION_ACK_TEXT` | 內建一句 | 開單後附給提問者的話；留空則不附加。 |
 
-> ⚠️ `.env.example` 尚未收錄這幾個變數（見 README 同一節的註記），請直接照上表手動加到 `.env`。
+> `.env.example` 已列出這幾個變數（留空＝關）；要開就在 `.env` 照上表填值。
 
 轉診單寫在 `data/escalations/`，`data/` 已被 `.gitignore` 擋住，**不會進 git**。
 
@@ -152,7 +152,7 @@ node src/escalation.js remind 3                      # 重推提醒：每位回�
 bot 在群組裡**不插嘴**，只收；你（AI）定期用 `absorb.js` 讀新料，**問過使用者**再更新 `persona/`。
 下列變數全空時，行為與沒有這兩個檔**完全相同**（群組照舊每句都回）。
 
-### 怎麼打開（`.env.example` 尚未收錄，手動加進 `.env`）
+### 怎麼打開（`.env.example` 已列出，在 `.env` 填值）
 
 | 變數 | 值 | 效果 |
 |---|---|---|
@@ -200,7 +200,7 @@ node src/absorb.js --commit        # 讀完了，標記為已讀（沒加這個�
 - **只放記憶體**：不落磁碟、不寫 log；重啟即清。這是刻意的隱私取捨，不要改成寫檔。
 - 上限：每段最多留 N 輪；全域最多 1000 段，超過淘汰最久沒動靜的。
 - 轉真人（`escalation.js`）判斷的仍是**本輪**回覆，帶不帶歷史不改變它的行為。
-- `.env.example` 尚未收錄這些變數，手動加進 `.env`。
+- `.env.example` 已列出這些變數，留空＝關。
 
 ## 🆘 卡住的時候 — 你自己，或使用者
 

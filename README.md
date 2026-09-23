@@ -192,7 +192,7 @@ node src/absorb.js --commit   # 看完了，標記已讀
 > 但訊息原文與圖片會存下來。別在朋友群、家族群偷偷開。
 
 完整變數表（含 `GROUP_WAKE_WORDS`）與 AI 助理該怎麼用這些料，見 [`AGENTS.md`](AGENTS.md) 的〈用群組餵資料〉。
-`.env.example` 目前還沒收錄這些變數，請手動加進 `.env`。
+`.env.example` 已列出這些變數，留空＝關。
 
 ## 選配：轉真人閉環（預設關閉）
 
@@ -215,7 +215,7 @@ node src/escalation.js claim <你的LINEuserId>      # 取一張
 node src/escalation.js answer <單號> "答案" --send  # 作答並推回去
 ```
 
-> `.env.example` 目前還沒收錄這些變數，請照 [`AGENTS.md`](AGENTS.md) 的〈轉真人閉環〉表格手動加進 `.env`。
+> `.env.example` 已列出這些變數（留空＝關），各變數的意思見 [`AGENTS.md`](AGENTS.md) 的〈轉真人閉環〉表格。
 
 完整變數表、CLI 用法，以及**三個必須知道的坑**（通知對象為 0、通知不重推、流程狀態放記憶體），
 都在 [`AGENTS.md`](AGENTS.md) 的〈轉真人閉環〉一節。要改這個模組前請先讀那三個坑。
@@ -233,7 +233,7 @@ HISTORY_TTL_MIN=60       # 60 分鐘沒動靜就忘掉（預設）
 - **群組裡大家共享同一段記憶**；1:1 則每人各自一段。
 - **只存在記憶體**，不寫檔、不寫 log，重啟就清空——這是刻意的隱私取捨。
 
-完整變數表見 [`AGENTS.md`](AGENTS.md) 的〈多輪對話記憶〉。`.env.example` 目前還沒收錄這些變數，請手動加進 `.env`。
+完整變數表見 [`AGENTS.md`](AGENTS.md) 的〈多輪對話記憶〉。`.env.example` 已列出這些變數，留空＝關。
 
 ## License
 
