@@ -136,6 +136,14 @@ LLM_API_KEY=your-gateway-api-key
 LLM_MODEL=gemini-2.5-flash
 ```
 
+xAI Grok（本身就是 OpenAI-compatible，不用 gateway，填 xAI 的網址和你自己的 key 即可；可用模型見 [xAI 模型列表](https://docs.x.ai/developers/models)）：
+
+```env
+LLM_BASE_URL=https://api.x.ai/v1
+LLM_API_KEY=xai-your-api-key
+LLM_MODEL=grok-4.7
+```
+
 本地 Ollama：
 
 ```env
