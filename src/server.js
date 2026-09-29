@@ -7,6 +7,7 @@ const line = require('@line/bot-sdk');
 const { handleMessage } = require('./brain');
 const { loadPersona } = require('./persona');
 const groupFeed = require('./group');
+const { bodySizeLimit, createUserRateLimiter, loadLimitsConfig } = require('./limits');
 
 const port = Number(process.env.PORT || 3000);
 const lineConfig = {
@@ -24,12 +25,17 @@ const client = new line.messagingApi.MessagingApiClient({
 
 const app = express();
 const persona = loadPersona();
+const limits = loadLimitsConfig();
+const userLimiter = createUserRateLimiter({
+  max: limits.rateLimitMax,
+  windowMs: limits.rateLimitWindowMs
+});
 
 app.get('/', (_req, res) => {
   res.status(200).send('line-persona is running');
 });
 
-app.post('/webhook', lineMiddleware(), async (req, res) => {
+app.post('/webhook', bodySizeLimit(limits.maxBodyBytes), lineMiddleware(), async (req, res) => {
   try {
     const results = await Promise.all(req.body.events.map(handleEvent));
     res.status(200).json(results);
@@ -52,6 +58,13 @@ function lineMiddleware() {
 }
 
 async function handleEvent(event) {
+  const userId = event.source && event.source.userId;
+  if (event.type === 'message' && !userLimiter.allow(userId)) {
+    // 超量：不進 LLM、不回覆，避免同一個使用者刷爆花費
+    console.warn(`Rate limited userId=${userId}`);
+    return null;
+  }
+
   if (event.source && event.source.groupId) {
     await rememberGroupId(event.source.groupId);
 
