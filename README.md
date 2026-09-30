@@ -10,19 +10,19 @@ line-persona 是一個最小可跑的 LINE 原生 AI 分身框架。你只要填
 
 市面上的 Dify、Open WebUI、AnythingLLM 多半是 Web-first 平台，對非工程師來說設定較重，LINE 原生整合也不一定直覺。本專案填的縫隙是：LINE 原生、低門檻、餵自己資料、雲端或本地模型隨切的一鍵分身框。
 
-> 📖 **不會寫程式？看 [白話使用手冊（使用手冊.md）](使用手冊.md)** — 教你怎麼「直接叫 AI（Claude Code / Codex）幫你架」，自己一行程式都不用碰；也教怎麼蒸餾大量資料、進階掛資料庫（RAG）。
+> 📖 **不會寫程式就看 [使用手冊](使用手冊.md)。叫 AI 讀 AGENTS.md，它會先列出步驟。**
 
 ## 玩玩看｜Try it on LINE
 
-想先看看 AI 主腦在 LINE 上實際怎麼對話，可以加 **主腦實驗室**：我們艦隊的 LINE 官方帳號，由寂寞伯（第二主腦）在顧。覺得好玩，再照下面養一隻自己的。
+想先看 LINE 上的分身，加 @395jcpsb。
 
 🔥 **加好友（LINE ID：`@395jcpsb`）**：https://line.me/R/ti/p/@395jcpsb
 
 <p align="center">
-  <img src="docs/line-qr.png" alt="Add 主腦實驗室 (Brain Lab) on LINE" width="180">
+  <img src="docs/line-qr.png" alt="LINE @395jcpsb" width="180">
 </p>
 
-> _Want to see an AI brain on LINE before building your own? Add **主腦實驗室 (Brain Lab)**, our fleet's LINE official account, run by our second brain._
+> _想先看 LINE 上的分身，加 @395jcpsb._
 
 ## 幫自己裝一台（3 步）
 
@@ -182,7 +182,7 @@ LLM_MODEL=llama3.1
 
 ## 選配：用群組餵資料（預設關閉）
 
-開一個群組、把 bot 拉進去，平常把菜單、公告、照片丟進去——bot 在群組裡不插嘴，只負責收；
+開一個群組、把 bot 拉進去，平常把菜單、公告、照片丟進去。bot 在群組裡不插嘴，只負責收。
 之後讓 AI 助理讀新料、問過你再更新分身的知識。不設任何變數時，群組行為跟現在一樣（每句都回）。
 
 ```env
@@ -204,10 +204,10 @@ node src/absorb.js --commit   # 看完了，標記已讀
 
 ## 選配：轉真人閉環（預設關閉）
 
-自己玩的分身不需要這個，所以**預設是關的**——不設任何環境變數時，行為跟沒有這個模組完全一樣。
+自己玩的分身不需要這個，所以**預設是關的**。不設任何環境變數時，行為跟沒有這個模組完全一樣。
 
 但如果你拿它做**客服**，就會撞到這件事：`persona/profile.md` 的範本教分身說「不確定就說轉真人」，
-分身照做了，說出「我幫你轉達真人，請稍候」——**然後沒有然後**。框架本身沒有東西去兌現這句話。
+分身照做了，說出「我幫你轉達真人，請稍候」。**然後沒有然後**。框架本身沒有東西去兌現這句話。
 
 `src/escalation.js` 是來兌現它的：答不出來 → 開單（同一人重問會併單）→ 通知回答者 →
 回答者用 CLI 取單作答 → 答案推回原提問者 → **寫下 push 收據**。零新相依，轉診單存在 `data/`（已 gitignore）。
@@ -239,13 +239,13 @@ HISTORY_TTL_MIN=60       # 60 分鐘沒動靜就忘掉（預設）
 
 - 傳 `/clear`、`清除對話` 或 `忘記剛剛` 可以讓它馬上忘掉（`HISTORY_CLEAR_WORDS` 可改）。
 - **群組裡大家共享同一段記憶**；1:1 則每人各自一段。
-- **只存在記憶體**，不寫檔、不寫 log，重啟就清空——這是刻意的隱私取捨。
+- **只存在記憶體**，不寫檔、不寫 log。重啟就清空。這是刻意的隱私取捨。
 
 完整變數表見 [`AGENTS.md`](AGENTS.md) 的〈多輪對話記憶〉。`.env.example` 已列出這些變數，留空＝關。
 
 ## 同一個生態圈｜Part of the ecosystem
 
-line-persona 是 [ZAX-HAN 開源矩陣](https://github.com/zaxardery8011-design)裡「觸及真人」的那一塊。整個生態圈在做同一件事：**讓一個人管得住一群會唬爛的 AI。**
+這些工具做同一件事。人拍板。AI 做事。做完要能被驗收。
 
 | 你還想要… | 看這個 |
 |---|---|
@@ -254,7 +254,7 @@ line-persona 是 [ZAX-HAN 開源矩陣](https://github.com/zaxardery8011-design)
 | 長時間跑下來，AI 慢慢偏離你的指示 | [soplint](https://github.com/zaxardery8011-design/soplint) |
 | 不確定從哪開始 | [個人頁的 30 秒路由表](https://github.com/zaxardery8011-design) |
 
-> _line-persona is the "reach real users" piece of a small open-source ecosystem for keeping a crowd of AI agents honest. The [profile page](https://github.com/zaxardery8011-design) routes you to the right repo in 30 seconds._
+> _These tools do one thing. You decide. AI does the work. Finished work has to be checkable._
 
 ## License
 
