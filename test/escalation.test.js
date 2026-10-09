@@ -506,14 +506,24 @@ describe('escalation', () => {
 
     const flowState = () => JSON.parse(sandbox.read(`${ESC_DIR}/_flow_state.json`));
 
+    // A ticket that outranks the held one (older, or urgent) shows up after the first claim.
+    // The responder must still get the ticket already in hand, not the new front of the queue.
+    const outrankingArrivals = () => {
+      seed('older.json', { ts: daysAgo(9) });
+      seed('urgent.json', { ts: daysAgo(0.1), urgency: 'urgent' });
+    };
+
     it('hands out the oldest ticket and keeps handing out the same one until it is released', async () => {
       assert.strictEqual((await esc.claim('Uresp1')).id, 'old.json');
+      outrankingArrivals();
+
       assert.strictEqual((await esc.claim('Uresp1')).id, 'old.json');
       assert.strictEqual(flowState().Uresp1.holding.id, 'old.json');
     });
 
     it('still returns the held ticket after a restart', async () => {
       await esc.claim('Uresp1');
+      outrankingArrivals();
 
       esc = sandbox.load('src/escalation.js'); // a fresh process: no in-memory state
 
