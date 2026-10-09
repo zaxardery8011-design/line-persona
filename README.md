@@ -243,6 +243,21 @@ HISTORY_TTL_MIN=60       # 60 分鐘沒動靜就忘掉（預設）
 
 完整變數表見 [`AGENTS.md`](AGENTS.md) 的〈多輪對話記憶〉。`.env.example` 已列出這些變數，留空＝關。
 
+## 跑測試｜Running tests
+
+專案附一組單元測試，只用 Node 內建的 `node:test`，**不用裝任何新套件**：
+
+```bash
+npm ci        # 或 npm install
+npm test
+```
+
+- 測試**不連網、不呼叫真的模型、也不需要任何 LINE 鑰匙**：LLM 和 LINE 的呼叫都用假的取代。
+- 要寫檔的測試一律寫在系統暫存資料夾，不會動到你的 `.env` 和 `data/`。
+- 每次 push 和 PR，GitHub Actions 會用 Node 20 和 22 各跑一次（`.github/workflows/test.yml`）。
+
+改了 `src/` 的話，送 PR 前先跑一次 `npm test`。
+
 ## 同一個生態圈｜Part of the ecosystem
 
 這些工具做同一件事。人拍板。AI 做事。做完要能被驗收。
