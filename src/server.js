@@ -138,6 +138,11 @@ async function rememberGroupId(groupId) {
   }
 }
 
-app.listen(port, () => {
-  console.log(`line-persona listening on http://localhost:${port}`);
-});
+// Only listen when started directly (npm start); tests require() the app instead.
+if (require.main === module) {
+  app.listen(port, () => {
+    console.log(`line-persona listening on http://localhost:${port}`);
+  });
+}
+
+module.exports = { app };
