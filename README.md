@@ -66,6 +66,8 @@ LLM_API_KEY=你的 LLM API key
 LLM_MODEL=gpt-4.1-mini
 ```
 
+> `/webhook` 預設就有防護：單一請求超過 256 KB 回 413；同一個 LINE 使用者 60 秒內超過 20 則訊息，多的不叫模型也不回。要調整就在 `.env` 設 `WEBHOOK_MAX_BODY_BYTES`、`WEBHOOK_RATE_LIMIT_MAX`、`WEBHOOK_RATE_LIMIT_WINDOW_SEC`（`0`＝不限），變數表見 [`AGENTS.md`](AGENTS.md) 的〈Webhook 防護〉。
+
 ### 3. 編輯分身人格與知識
 
 改這兩個檔案：

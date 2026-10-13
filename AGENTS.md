@@ -49,6 +49,18 @@ data/                ── 執行期資料（groups.json 等），已 gitignore
 
 ---
 
+## 🛡️ Webhook 防護（`src/limits.js`）：預設開著
+
+`/webhook` 不設任何變數也有兩道防護。要調整才在 `.env` 填值（`.env.example` 已列出，留空＝用預設；不是數字或小於 0 也用預設）：
+
+| 變數 | 預設 | 說明 |
+|---|---|---|
+| `WEBHOOK_MAX_BODY_BYTES` | `262144`（256 KB） | 請求的 `Content-Length` 超過這個數就回 413，在驗簽章之前就擋掉。`0`＝不限。 |
+| `WEBHOOK_RATE_LIMIT_MAX` | `20` | 同一個 LINE userId 在一個時間窗內最多幾則訊息（私訊、群組合計）；超過的不叫模型、不回覆、群組收集也不記，只寫一條 warn。`0`＝不限。限流按 userId 不按 IP，因為 webhook 全都從 LINE 的 IP 打進來。 |
+| `WEBHOOK_RATE_LIMIT_WINDOW_SEC` | `60` | 上面那個時間窗幾秒。 |
+
+---
+
 ## 🔧 擴充任務（使用者要求時才做，預設保持最簡 §最小主義）
 
 - **蒸餾大量資料**：使用者有一堆雜亂原始資料 → 用**已內建的** `distill.js`：
