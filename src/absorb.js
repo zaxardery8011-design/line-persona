@@ -46,11 +46,18 @@ function main(argv) {
         continue;
       }
 
-      groupLines.push(`### ${file.replace(/\.jsonl$/, '')}`);
+      const items = [];
       for (let i = seen; i < lines.length; i += 1) {
         const where = `${key}:${i + 1}`;
-        groupLines.push(`- L${i + 1} ${describe(lines[i], where, risks)}`);
-        total += 1;
+        const item = describe(lines[i], where, risks);
+        // 已收回／遮蔽的行不列（行還在，水位與行號照算）
+        if (item !== null) {
+          items.push(`- L${i + 1} ${item}`);
+        }
+      }
+      if (items.length) {
+        groupLines.push(`### ${file.replace(/\.jsonl$/, '')}`, ...items);
+        total += items.length;
       }
     }
 
@@ -84,6 +91,9 @@ function describe(rawLine, where, risks) {
     rec = JSON.parse(rawLine);
   } catch (_error) {
     return '（無法解析的行）';
+  }
+  if (rec && rec.redacted) {
+    return null;
   }
 
   const who = rec.user_hash || '--------';

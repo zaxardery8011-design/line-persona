@@ -8,8 +8,9 @@
 //
 // 打開它（.env 設 ESCALATION_ENABLED=1）之後的閉環：
 //   分身答不出來 → 開單（去重）→ 通知回答者 → 回答者取單作答 → 推回原提問者 → 寫 push 收據
+//   （私訊傳來分身看不到的圖片／影片／語音／檔案，也走同一條，見 escalateMedia()）
 //
-// **沒設 ESCALATION_ENABLED 時，maybeEscalate() 第一行就原樣返回，不讀檔、不寫檔、不發訊息。**
+// **沒設 ESCALATION_ENABLED 時，maybeEscalate() / escalateMedia() 第一行就返回，不讀檔、不寫檔、不發訊息。**
 //
 // 下文三個「咽喉」註解裡的「真實事故」，出處是作者自己營運的 LINE bot（主腦實驗室，
 // 非本框架的使用者回報）：26 筆待回覆卡單、最久 94.1 天。本模組是把那次修復抽成可選配的通用版。
@@ -113,26 +114,87 @@ function ageDays(ticket) {
 }
 
 // ── LINE push（零相依，直接打 Messaging API）─────────────────────────────
+//
+// 有限重試＋X-Line-Retry-Key（官方文件：developers.line.biz/en/docs/messaging-api/retrying-api-request/）
+//   - 只在 fetch 拋錯（網路、逾時）與 5xx 時重試；其他 4xx 重試結果不會變，直接 throw。
+//     429 也不重試：官方重試表沒列它，它可能是額度用完，再打只會更糟。
+//   - 同一次 push 的每次重試共用同一把 key（十六進位 UUID），LINE 靠它認出「同一則」，不會重複送達。
+//     key 只在 24 小時內有效；push 支援它，reply 不支援（帶了回 400），所以只放在這裡。
+//   - 重送時回 409 且帶 x-line-accepted-request-id ＝ 先前某次其實已被接受（例如那次回應在路上逾時），算送到。
+//   - 用盡照舊 throw「LINE push <status>: ...」，上層照舊寫 _notify_failures.jsonl / push_status。
+//   - 重試只在 10 秒時窗內開始（PUSH_RETRY_WINDOW_MS）：開單通知是在回覆提問者前 await 完的，
+//     而 reply token 只有 1 分鐘可用（前面還有 LLM 要等）；同一把 key 也只在 24 小時內有效。
+//     所以不管 ESCALATION_PUSH_* 怎麼設、LINE 回得多慢，時窗過了就不再開新的一次，照舊 throw 走收據。
+//     一次開單通知的所有回答者共用同一個時窗（notifyResponders 傳 deadline），回答者再多也一樣。
 
-async function linePush(to, text) {
+const PUSH_URL = 'https://api.line.me/v2/bot/message/push';
+const PUSH_RETRY_WINDOW_MS = 10000;
+
+function pushAttempts() {
+  const n = Math.floor(Number(process.env.ESCALATION_PUSH_ATTEMPTS || 3));
+  if (Number.isNaN(n)) return 3;
+  return Math.min(Math.max(n, 1), 5);   // 1（或更小）＝不重試；上限 5，因為開單通知是在 webhook 回覆前等完的
+}
+
+function pushRetryBaseMs() {
+  const n = Number(process.env.ESCALATION_PUSH_RETRY_MS || 500);
+  if (!Number.isFinite(n) || n < 0) return 500;
+  return Math.min(n, 5000);   // 上限 5 秒，理由同上；再大也會被 10 秒時窗吃掉
+}
+
+const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
+
+// deadline：過了這個時間點（Date.now() 毫秒）就不再開始新的重試；不給就從現在起算 10 秒
+async function linePush(to, text, deadline = Date.now() + PUSH_RETRY_WINDOW_MS) {
   const token = process.env.LINE_CHANNEL_ACCESS_TOKEN || '';
   if (!token) throw new Error('LINE_CHANNEL_ACCESS_TOKEN is empty');
 
-  const response = await fetch('https://api.line.me/v2/bot/message/push', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ to, messages: [{ type: 'text', text: String(text).slice(0, 5000) }] })
-  });
+  const attempts = pushAttempts();
+  const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
+  // 不重試時不帶 key，行為跟舊版一模一樣
+  if (attempts > 1) headers['X-Line-Retry-Key'] = crypto.randomUUID();
+  // 重試時內容與收件人都不能改，所以 body 只算一次
+  const body = JSON.stringify({ to, messages: [{ type: 'text', text: String(text).slice(0, 5000) }] });
 
-  if (!response.ok) {
-    throw new Error(`LINE push ${response.status}: ${(await response.text()).slice(0, 200)}`);
+  for (let attempt = 1; ; attempt += 1) {
+    let response;
+    let failure;
+    try {
+      response = await fetch(PUSH_URL, { method: 'POST', headers, body });
+    } catch (error) {
+      failure = error;   // 網路錯誤、逾時：可重試，錯誤原樣保留
+    }
+
+    if (response) {
+      if (response.ok) return true;
+      if (response.status === 409 && response.headers.get('x-line-accepted-request-id')) return true;
+      failure = new Error(`LINE push ${response.status}: ${(await response.text()).slice(0, 200)}`);
+      if (response.status < 500) throw failure;   // 其他 4xx（含 429）重試結果不會變
+    }
+
+    // 指數退避；次數用完，或等完會超過時窗，就不再試
+    const wait = pushRetryBaseMs() * 2 ** (attempt - 1);
+    if (attempt >= attempts || Date.now() + wait > deadline) throw failure;
+    await sleep(wait);
   }
-  return true;
 }
 
 // ── 開單（含去重）────────────────────────────────────────────────────────
+//
+// 開單一次只跑一張：一次 webhook 可能同時帶好幾則事件（例如一口氣傳的幾張圖），server.js 是並行處理的。
+// 不排隊的話，每則都會在別則的單寫進磁碟前讀到「還沒有單」，各開一張、各通知一次，去重就破了。
+// 只排同一個 process 內的開單（本框架就是單一 process）；前一張失敗不擋後面。
+let openQueue = Promise.resolve();
 
-async function openTicket(userId, question) {
+// media：這則是圖片／影片／語音／檔案（escalateMedia）。併進舊單時照樣記一筆追問，但不算進 urgency：
+// 一口氣傳一組圖不代表急，不該讓單在 claim 時插隊。文字追問照舊，兩次起標 urgent。
+function openTicket(userId, question, media) {
+  const run = openQueue.then(() => openTicketNow(userId, question, media));
+  openQueue = run.catch(() => {});
+  return run;
+}
+
+async function openTicketNow(userId, question, media) {
   const windowMin = Number(process.env.ESCALATION_DEDUPE_MIN || 60);
   const now = new Date();
   const mine = (await listTickets('pending'))
@@ -143,10 +205,10 @@ async function openTicket(userId, question) {
     const last = mine[0];
     const lastAt = new Date(last.last_follow_up_at || last.ts);
     if (now - lastAt <= windowMin * 60000) {
-      last.follow_ups = (last.follow_ups || []).concat([{ ts: now.toISOString(), question }]);
+      last.follow_ups = (last.follow_ups || []).concat([media ? { ts: now.toISOString(), question, media: true } : { ts: now.toISOString(), question }]);
       last.follow_up_count = last.follow_ups.length;
       last.last_follow_up_at = now.toISOString();
-      last.urgency = last.follow_up_count >= 2 ? 'urgent' : 'normal';
+      last.urgency = last.follow_ups.filter((f) => !f.media).length >= 2 ? 'urgent' : 'normal';
       await writeTicket(last);
       return { ticket: last, isNew: false };
     }
@@ -216,9 +278,10 @@ async function notifyResponders(ticket, textOverride) {
   ].join('\n');
 
   let ok = 0;
+  const deadline = Date.now() + PUSH_RETRY_WINDOW_MS;   // 所有回答者共用一個重試時窗，見 linePush()
   for (const to of targets) {
     try {
-      await linePush(to, text);
+      await linePush(to, text, deadline);
       ok += 1;
     } catch (error) {
       await recordNotifyFailure(ticket, 'push_failed', error.message);
@@ -445,7 +508,9 @@ async function resolve(id, answer, responderId, options) {
   return writeTicket(ticket);
 }
 
-// ── 主線唯一接點 ────────────────────────────────────────────────────────
+// ── 主線接點 ────────────────────────────────────────────────────────────
+
+const DEFAULT_ACK = '（已經幫你登記了，有答案會主動回你）';
 
 async function maybeEscalate(ctx, reply) {
   if (!isEnabled()) return reply;   // ← opt-in：關閉時原樣返回，不讀檔不寫檔不發訊息
@@ -462,7 +527,7 @@ async function maybeEscalate(ctx, reply) {
     const { ticket, isNew } = await openTicket(ctx.userId, ctx.text);
     if (isNew) await notifyResponders(ticket);
 
-    const ack = process.env.ESCALATION_ACK_TEXT || '（已經幫你登記了，有答案會主動回你）';
+    const ack = process.env.ESCALATION_ACK_TEXT || DEFAULT_ACK;
     return ack ? `${reply}\n\n${ack}` : reply;
   } catch (error) {
     // 選配模組壞掉不得拖垮主線回覆
@@ -471,10 +536,35 @@ async function maybeEscalate(ctx, reply) {
   }
 }
 
+// 私訊傳來的圖片／影片／語音／檔案（server.js 呼叫）：分身看不到內容（也不下載），
+// 所以不經 LLM、不看關鍵詞，直接開單。去重、通知、失敗紀錄跟上面同一套：
+// 同一人在去重窗口內連傳好幾張，只會併進同一張單、只通知一次，而且這些追問不會把單標成 urgent（見 openTicket）。
+// 成功回「notice + 登記話術」；沒開或開單失敗回 null，呼叫端改請對方用文字描述（不能說已經轉了）。
+async function escalateMedia(ctx, notice) {
+  if (!isEnabled()) return null;   // ← 關閉時不讀檔不寫檔不發訊息
+
+  try {
+    if (!ctx || !ctx.userId) {
+      await recordNotifyFailure({ id: '(none)', userId: '' }, 'missing_user_id');
+      return null;
+    }
+
+    const { ticket, isNew } = await openTicket(ctx.userId, ctx.text, true);
+    if (isNew) await notifyResponders(ticket);
+
+    const ack = process.env.ESCALATION_ACK_TEXT || DEFAULT_ACK;
+    return `${notice}\n\n${ack}`;
+  } catch (error) {
+    console.error('[escalation] 開單流程失敗:', error.message);
+    return null;
+  }
+}
+
 module.exports = {
   isEnabled,
   looksUnanswered,
   maybeEscalate,
+  escalateMedia,
   openTicket,
   notifyResponders,
   listTickets,
