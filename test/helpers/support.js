@@ -149,7 +149,10 @@ function installFetch(handler) {
   const original = globalThis.fetch;
   const calls = [];
   globalThis.fetch = async (url, init) => {
-    calls.push({ url: String(url), init: init || {}, body: parseBody(init) });
+    // headers is copied at call time: code under test may reuse one headers
+    // object across retries, and init.headers would then only show the last one.
+    const headers = { ...((init && init.headers) || {}) };
+    calls.push({ url: String(url), init: init || {}, headers, body: parseBody(init) });
     if (!handler) throw new Error(`unexpected network call in test: ${url}`);
     return handler(String(url), init || {});
   };
@@ -170,10 +173,11 @@ function parseBody(init) {
   }
 }
 
-function fakeResponse({ ok = true, status = 200, json = {}, text = '' } = {}) {
+function fakeResponse({ ok = true, status = 200, json = {}, text = '', headers = {} } = {}) {
   return {
     ok,
     status,
+    headers: new Headers(headers),
     json: async () => json,
     text: async () => text
   };

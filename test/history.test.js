@@ -13,6 +13,8 @@ describe('history', () => {
   beforeEach(() => {
     restoreEnv = isolateEnv();
     history._store.clear();
+    history._forgotten.clear();
+    history._withdrawn.clear();
     clock = 1000000;
     history.now = () => clock;
   });
@@ -20,6 +22,8 @@ describe('history', () => {
   afterEach(() => {
     history.now = realNow;
     history._store.clear();
+    history._forgotten.clear();
+    history._withdrawn.clear();
     restoreEnv();
   });
 
@@ -121,6 +125,57 @@ describe('history', () => {
 
       assert.deepStrictEqual(history.toMessages('U1'), []);
       assert.strictEqual(history.toMessages('U2').length, 2);
+    });
+
+    it('forgetUser drops every turn one person said: their whole one-to-one chat, and only their turns in shared chats', () => {
+      history.record('U1', 'dm q', 'dm a', 'U1');
+      history.record('G1', 'U1 in G1', 'a1', 'U1');
+      history.record('G1', 'U2 in G1', 'a2', 'U2');
+      history.record('R1', 'U1 in R1', 'a3', 'U1');
+      history.record('U2', 'U2 dm', 'a4', 'U2');
+
+      assert.strictEqual(history.forgetUser('U1'), 3);
+
+      assert.deepStrictEqual(history.toMessages('U1'), []);
+      assert.deepStrictEqual(history.toMessages('G1').map((m) => m.content), ['U2 in G1', 'a2']);
+      assert.strictEqual(history._store.has('R1'), false, 'a chat left empty is dropped');
+      assert.deepStrictEqual(history.toMessages('U2').map((m) => m.content), ['U2 dm', 'a4']);
+      assert.strictEqual(history.forgetUser(''), 0);
+      assert.strictEqual(history.forgetUser('U1'), 0);
+    });
+
+    it('does not write back a turn said at or before that person\'s "forget me" (its answer came back late), but keeps later ones', () => {
+      process.env.HISTORY_TURNS = '5';
+      history.forgetUser('U1', 5000);
+
+      history.record('U1', 'before', 'a1', 'U1', 4000);
+      history.record('G1', 'same ms', 'a2', 'U1', 5000);
+      history.record('G1', 'other person', 'a3', 'U2', 4000);
+      history.record('U1', 'after', 'a4', 'U1', 5001);
+
+      assert.deepStrictEqual(history.toMessages('U1').map((m) => m.content), ['after', 'a4']);
+      assert.deepStrictEqual(history.toMessages('G1').map((m) => m.content), ['other person', 'a3']);
+    });
+
+    it('forgetMessage drops the turn of an unsent or edited message wherever it is, and never writes it back when its answer comes late', () => {
+      process.env.HISTORY_TURNS = '5';
+      history.record('U1', '密碼=hunter2', 'a1', 'U1', 1000, 'm1');
+      history.record('U1', '早安', 'a2', 'U1', 2000, 'm2');
+      history.record('G1', '群組裡說的', 'a3', 'U2', 3000, 'm3');
+
+      assert.strictEqual(history.forgetMessage('m1'), 1);
+      assert.strictEqual(history.forgetMessage('m3'), 1);
+      history.forgetMessage('m4'); // unsent while the model was still answering it
+      history.record('U1', '收回時還在想的那句', 'late', 'U1', 4000, 'm4');
+
+      assert.deepStrictEqual(history.toMessages('U1').map((m) => m.content), ['早安', 'a2']);
+      assert.strictEqual(history._store.has('G1'), false, 'a chat left empty is dropped');
+      assert.strictEqual(history.forgetMessage('m1'), 0);
+      assert.strictEqual(history.forgetMessage(''), 0);
+
+      process.env.HISTORY_TURNS = '';
+      assert.strictEqual(history.forgetMessage('m2'), 0, 'memory off: nothing to do');
+      assert.strictEqual(history._withdrawn.has('m2'), false, 'and nothing is remembered');
     });
   });
 

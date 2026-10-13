@@ -17,11 +17,11 @@
 ## 架構地圖（你動手前先讀懂）
 
 ```
-src/server.js        ── LINE webhook 入口：簽章驗證、event 路由、reply、群組存 groupId(供日後主動 push)
+src/server.js        ── LINE webhook 入口：簽章驗證、event 路由、reply、群組存 groupId(供日後主動 push)、1:1 私訊「輸入中」動畫(LINE_LOADING_SECONDS，0＝關；對方要開著聊天室、用 LINE iOS/Android 13.16.0+ 才看得到，LINE 不回報有沒有顯示)
 src/brain.js         ── 「大腦插孔」：handleMessage(ctx) -> string。預設組 persona prompt 後呼 llm
 src/adapters/llm.js  ── 單一 LLM adapter，OpenAI-compatible，全參數走 .env
 src/persona.js       ── 開機讀 persona/*.md 組成 system prompt
-src/escalation.js    ── 【選配·預設關閉】轉真人閉環。沒開時 brain.js 那一呼叫直接原樣返回
+src/escalation.js    ── 【選配·預設關閉】轉真人閉環。沒開時 brain.js 與 server.js（私訊媒體）的呼叫直接返回
 src/history.js       ── 【選配·預設關閉】多輪對話記憶（只在記憶體）。沒開時 brain.js 只送當句
 persona/profile.md   ── 分身人格（誰、口吻、邊界）  ← 使用者要改的
 persona/knowledge.md ── 分身知識（FAQ、基本資訊）    ← 使用者要改的
@@ -56,7 +56,7 @@ data/                ── 執行期資料（groups.json 等），已 gitignore
   要客製蒸餾規則就改 `distill.js` 裡的 system prompt。
 - **掛資料庫 / RAG**：知識多到塞不進 context 時，改 `src/brain.js`：在組 prompt 前先做「向量檢索取最相關 N 段」。
   優先用**輕量、免另架伺服器**的本地檔案型向量庫，別拉重型相依。
-- **媒體訊息**：`src/server.js` 對 image/file/audio 目前只回提示，已留 future hook，可依需求接圖片理解 / 語音轉文字。
+- **媒體訊息**：`src/server.js` 對 1:1 私訊的 image/video/audio/file 回「請改用文字描述」（開了轉真人就改成開單，見下一節），其他非文字只回提示；已留 future hook，可依需求接圖片理解 / 語音轉文字。
 - **主動推播**：`data/groups.json` 已存 groupId，可加排程推播。
 
 - **轉真人閉環（客服場景才要，預設關閉）**：見下一節。**使用者沒說要，就不要打開。**
@@ -95,11 +95,15 @@ ESCALATION_NOTIFY_TO=Uxxxxxxxx,Uyyyyyyyy
 | `ESCALATION_TRIGGERS` | 內建清單 | 判斷「答不出來」的關鍵詞，`\|` 分隔。**要跟 `persona/profile.md` 寫的講法對得上**，否則永遠不開單。 |
 | `ESCALATION_DEDUPE_MIN` | `60` | 同一人幾分鐘內重問算同一張單。 |
 | `ESCALATION_MAX_REMINDERS` | `5` | 同一張單最多重推幾次，避免無限重推。 |
-| `ESCALATION_ACK_TEXT` | 內建一句 | 開單後附給提問者的話；留空則不附加。 |
+| `ESCALATION_ACK_TEXT` | 內建一句 | 開單後附給提問者的話（文字單、私訊媒體單都附）。留空＝附內建那句「（已經幫你登記了，有答案會主動回你）」；沒有「不附加」的設定。 |
+| `ESCALATION_PUSH_ATTEMPTS` | `3` | 每則 push 遇到網路錯誤、逾時或 LINE 5xx 時總共試幾次（最多 5；不是數字就用 3）。重試共用同一把 `X-Line-Retry-Key`，LINE 不會重複送達；其他 4xx（含 429）不重試。設 `1`＝不重試。用盡才算失敗，照樣寫收據。 |
+| `ESCALATION_PUSH_RETRY_MS` | `500` | 第一次重試前等幾毫秒，之後每次加倍（最多 `5000`；不是數字或小於 0 就用 500）。不管這兩個怎麼設，重試只在開始推送後 **10 秒內**開始（一次開單通知的所有回答者共用這 10 秒），過了就不再試、照樣寫收據：開單通知是在回覆提問者前送完的，reply token 只有 1 分鐘可用。 |
 
-> `.env.example` 已列出這幾個變數（留空＝關）；要開就在 `.env` 照上表填值。
+> `.env.example` 已列出這幾個變數。全部留空＝轉真人關閉（`ESCALATION_ENABLED` 空就是關）；開了之後，其他變數留空是用上表的預設值，不是關掉那一項（例如 `ESCALATION_ACK_TEXT` 留空照樣附內建那句、`ESCALATION_PUSH_ATTEMPTS` 留空＝試 3 次）。要開就在 `.env` 照上表填值。
 
 轉診單寫在 `data/escalations/`，`data/` 已被 `.gitignore` 擋住，**不會進 git**。
+
+開著時，1:1 私訊傳來的圖片／影片／語音／檔案不經 LLM、直接開單（`escalateMedia()`，問題記成「[使用者傳了圖片]」，不下載內容），去重、通知、收據規則都跟文字單相同；開單失敗就改請對方用文字描述，不宣稱已轉。同一人連傳幾張併進同一張單時，這些媒體追問照樣記在 `follow_ups`（標 `media: true`），但不算進 `urgency`（文字追問兩次起才標 urgent、`claim` 時插隊；一口氣傳一組圖不代表急）。群組、多人聊天室、貼圖、位置不開單。
 
 ### 回答者怎麼用（CLI，不用開後台）
 
@@ -162,9 +166,11 @@ bot 在群組裡**不插嘴**，只收；你（AI）定期用 `absorb.js` 讀新
 | `GROUP_WAKE_WORDS` | `小安\|阿安` | `mention` 的喚醒詞，`\|` 分隔；空則用 `persona/profile.md` 的「名字」 |
 | `GROUP_COLLECT` | `1` | 群組文字落 `data/inbox/<groupId>/<YYYY-MM-DD>.jsonl`，圖片／影片／語音／檔案落 `media/` |
 
-- **1:1 對話完全不受這三個變數影響。**
+- **1:1 對話不受這三個變數影響**（「忘了我」除外，見下）。
 - 收料只存 `user_hash`（userId 的 sha256 前 8 碼），**不存原始 userId**。
 - 媒體**收到當下就下載**：LINE 的訊息內容會過期，晚點再抓會拿不到。下載失敗會在 jsonl 寫一行 `media_error`，不會靜默漏掉。
+- 成員**收回**訊息（`unsend`，往回找 7 天）：jsonl 裡那一行**原地遮蔽**，只留 `ts`／`type`／`user_hash`／`message_id` 加 `redacted`，行數不變（`absorb.js` 的水位靠行數），有媒體檔就刪掉。**編輯**（`messageEdited`，LINE 只在群組送）：遮蔽舊行、另補一行 `edited: true` 的新版。兩者都不回話；`absorb.js` 不列遮蔽過的行。升級到這一版之前就開著 `GROUP_COLLECT` 的話，之前收的文字行與下載成功的媒體行沒有 `message_id`，收回、編輯都對不到它們：原文與媒體檔留著，編輯則新舊兩版並存；「忘了我」靠 `user_hash` 比對，舊行照樣遮得到（要單獨處理一行，見〈讀新料〉的手動遮蔽）。媒體檔當下刪不掉、或 jsonl 被別的程式開著改寫不了（Windows 上的同步、防毒、看圖程式），那一行先原樣留著、記一條 warn，下一個群組事件再補做（只記在記憶體，重啟前沒補到就不會再補）。
+- **「忘了我」**：`GROUP_COLLECT=1`（或在 `.env` 設了 `GROUP_FORGET_WORDS`，`|` 分隔，空＝「忘了我」）時，訊息 trim 後**整句**等於指令詞（群組、私訊都行；「你會忘了我嗎」不算；跟 `HISTORY_CLEAR_WORDS` 撞到的詞歸清除詞）會在限流之後、群組政策與收集之前被攔下，**先不刪**，回一句請他確認。同一個人 60 秒內（含）在同一個聊天（同一個群組、多人聊天室或 1:1）回「確定」（trim 後整句比對，固定這個詞，沒有環境變數；那則的 LINE `timestamp` 要比指令那則晚），才把 `data/inbox/` 所有群組、所有日期裡他的行原地遮蔽（`redacted: 'forget'`，`user_hash` 也拿掉）、媒體檔刪掉、多輪記憶裡他說過的話清掉，回一句刪了幾則；這句回覆沒送到、LINE 重送同一則「確定」時（同一人、同一個 message id、同一個 timestamp），照原樣再回一次這句，不當一般訊息送模型（只在記憶體記最近 100 則，重啟後就認不出來）。待確認只放記憶體，而且那句請他確認的話真的送出去了才記（沒有 replyToken、或 LINE 回覆失敗讓 webhook 回 500 時不記：對方沒看到要回「確定」）；60 秒從記下那刻算。LINE 重送來的指令（`deliveryContext.isRedelivery`，第一次沒處理成功）一律不記待確認，改回一句請他再傳一次指令：重送時才問，等的起點比他實際看到那句話晚，他還沒看到時說的「確定」也可能排在後面重送、被當成確認。沒回、超過 60 秒、bot 重啟、收回自己下的那句指令（`unsend`）都等於取消（往不刪那邊倒）；同一人再下一次指令會重新計時。別人回、在別的聊天回、超過 60 秒才回、比指令早送出（LINE 重送的舊事件、或分在不同 webhook 後送先到；同一毫秒也算）、跟指令擠在同一個 webhook 裡、或根本沒有待確認時的「確定」，都照一般訊息處理（該送模型就送、該收集就收；所以 `silent` 群組裡逾時才回的「確定」不會有任何回覆）。指令和確認的那句「確定」都不落檔，`silent` 也回；兩句都照樣算進限流。它**只刪這台主機上 `data/inbox/` 與記憶體裡的副本**；下列副本**刪不到**，回覆裡會一條條講明：LINE 聊天室裡的訊息本身；`absorb.js` 印出來、你（或使用者）已經讀過的新料，以及抄進 `persona/` 的內容；已經送給 LLM 服務（`LLM_BASE_URL`）產生回覆的內容；`data/escalations/` 的轉真人單（客服紀錄，一律不動；`ESCALATION_ENABLED` 開著、或磁碟上有他的單時，回覆才提這條）。`user_hash` 只有 8 碼，萬一跟別人撞雜湊，別人的行會被一起遮蔽。
 - `data/` 已在 `.gitignore`，收到的料不會被 commit。
 
 ### 讀新料（CLI）
@@ -177,13 +183,16 @@ node src/absorb.js --commit        # 讀完了，標記為已讀（沒加這個�
 
 輸出開頭的「PII 快篩」只報**位置與樣態代碼**（`CRED` 帳密／`TOKEN`／`OAUTH`／`EMAIL`／`PHONE`），命中的那行在清單裡會遮蔽。
 看到 `CRED`／`TOKEN`：**提醒使用者去群組收回那則訊息並換掉密碼**，不要把它寫進任何檔案。
+收回成功的話，bot 收到收回事件會往回找 7 天、把 inbox 裡那行遮蔽掉，多輪記憶裡那一輪也會拿掉；但還收不收得回，要看 LINE App 的收回時限（依地區與方案不同，據報常見只有 1～24 小時，Premium 較長；待驗）。`absorb.js` 是事後才讀，多半已經過了時限。
+收不回（或那行是升級前收的、沒有 `message_id`）時，二選一：請發話的成員傳「忘了我」（或 `GROUP_FORGET_WORDS` 設的詞）再回「確定」（會遮蔽他在 `data/inbox/` 的**所有**紀錄）；或經使用者同意，由你手動遮蔽那一行：先停掉 bot（免得跟它正在寫的行互相蓋掉），把 jsonl 裡那一整行換成只留 `ts`／`type`／`user_hash`／`message_id`（有的話）再加 `"redacted": "manual"` 的版本，**不要刪行**（`absorb.js` 的水位靠行數），那行有媒體檔就一起刪，改完再啟動。
 
 ### 用產物更新人設的規矩
 
-1. 先跑 `absorb.js`（不加 `--commit`），整理出「打算怎麼改 `persona/knowledge.md`／`profile.md`」的提案。
+1. 先跑 `absorb.js`（不加 `--commit`），整理出「打算怎麼改 `persona/knowledge.md`／`profile.md`」的提案，每條註明依據清單裡的哪幾行（`L<行號>`）。
 2. **先問使用者**，列出要新增／修改的條目讓他點頭，**不要自己直接寫進人設**。群組裡的話可能是玩笑、過期資訊或別人的私事。
-3. 使用者同意、寫好之後，才跑 `node src/absorb.js --commit`。
-4. 圖片是料不是答案：看完圖把事實寫成文字進 `knowledge.md`，不要把 `media/` 路徑寫進人設。
+3. **寫進人設之前，再跑一次 `node src/absorb.js`（不加 `--commit`）**：等使用者點頭的這段時間，成員可能收回、編輯了訊息或傳了「忘了我」，那些行會從清單消失（編輯過的會以新的一行出現）。提案依據的行如果已經不在清單裡，那條就不要寫；編輯過的照新版重新問使用者。
+4. 使用者同意、寫好之後，才跑 `node src/absorb.js --commit`。
+5. 圖片是料不是答案：看完圖把事實寫成文字進 `knowledge.md`，不要把 `media/` 路徑寫進人設。
 
 ## 🧠 多輪對話記憶（`src/history.js`）：選配，預設關閉
 
@@ -198,6 +207,8 @@ node src/absorb.js --commit        # 讀完了，標記為已讀（沒加這個�
 
 - **「一段對話」怎麼算**：群組用 `groupId`、多人聊天室用 `roomId`、1:1 用 `userId`。**同一個群組裡所有人共享同一段脈絡**。A 剛說的，B 下一句問「那個呢」模型看得到。群組裡講到私事要記得這點。
 - **只放記憶體**：不落磁碟、不寫 log；重啟即清。這是刻意的隱私取捨，不要改成寫檔。
+- 「忘了我」（見〈用群組餵資料〉）會拿掉那個人說過的每一輪：1:1 整段刪，群組／多人聊天室只拿掉他那幾輪（靠 `brain.js` 呼叫 `history.record()` 時帶的 userId）。確認（回「確定」）之前說的、模型比確認晚回來的那一輪也不會被寫回去（`record()` 比對那則訊息與「確定」那則的 LINE timestamp，所以 `brain.js` 也要帶 `ctx.timestamp`）。
+- 收回（`unsend`，私訊、群組都算）或編輯（`messageEdited`）過的訊息，那一輪連同分身的回覆會從記憶拿掉；模型還在回時就被收回的那一輪也不會被寫回去（靠 `brain.js` 呼叫 `history.record()` 時帶的 `ctx.messageId`）。
 - 上限：每段最多留 N 輪；全域最多 1000 段，超過淘汰最久沒動靜的。
 - 轉真人（`escalation.js`）判斷的仍是**本輪**回覆，帶不帶歷史不改變它的行為。
 - `.env.example` 已列出這些變數，留空＝關。

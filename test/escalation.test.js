@@ -64,7 +64,8 @@ describe('escalation', () => {
   const pushedTo = () => net.calls.map((c) => c.body.to);
 
   beforeEach(() => {
-    restoreEnv = isolateEnv({ LINE_CHANNEL_ACCESS_TOKEN: TOKEN });
+    // Failed pushes are retried with a backoff; no waiting in tests unless a test asks for it.
+    restoreEnv = isolateEnv({ LINE_CHANNEL_ACCESS_TOKEN: TOKEN, ESCALATION_PUSH_RETRY_MS: '0' });
     sandbox = createSandbox();
     net = installFetch(async () => fakeResponse());
     warn = mock.method(console, 'warn', () => {});
@@ -159,6 +160,11 @@ describe('escalation', () => {
       assert.strictEqual(await esc.maybeEscalate(ctx, TRIGGER_REPLY), `${TRIGGER_REPLY}\n\n已通知店長`);
     });
 
+    it('still appends the built-in sentence when ESCALATION_ACK_TEXT is empty (the .env.example line)', async () => {
+      process.env.ESCALATION_ACK_TEXT = '';
+      assert.strictEqual(await esc.maybeEscalate(ctx, TRIGGER_REPLY), `${TRIGGER_REPLY}\n\n${ACK}`);
+    });
+
     it('merges a repeat question from the same person into one ticket and notifies only once', async () => {
       await esc.maybeEscalate(ctx, TRIGGER_REPLY);
       const second = await esc.maybeEscalate({ ...ctx, text: '怎麼還沒回' }, TRIGGER_REPLY);
@@ -239,6 +245,62 @@ describe('escalation', () => {
       assert.strictEqual(long.isNew, true);
       assert.strictEqual(long.ticket.question.length, 2000);
       assert.strictEqual(none.ticket.question, '');
+    });
+
+    it('keeps concurrent calls for one person on one ticket: only the first is new', async () => {
+      // server.js handles the events of one webhook request at the same time (e.g. a burst of images)
+      const results = await Promise.all(['a', 'b', 'c'].map((q) => esc.openTicket('Uasker', q)));
+
+      assert.deepStrictEqual(results.map((r) => r.isNew), [true, false, false]);
+      const files = ticketFiles();
+      assert.strictEqual(files.length, 1);
+      assert.strictEqual(ticketOnDisk(files[0]).question, 'a');
+      assert.deepStrictEqual(ticketOnDisk(files[0]).follow_ups.map((f) => f.question), ['b', 'c']);
+    });
+
+    it('does not let one failed open block the next one', async () => {
+      sandbox.write('data', 'a file where the data directory should be');
+      await assert.rejects(esc.openTicket('Uasker', 'a'));
+      fs.rmSync(sandbox.path('data'));
+
+      assert.strictEqual((await esc.openTicket('Uasker', 'b')).isNew, true);
+    });
+  });
+
+  describe('escalateMedia (images and files sent in a one-to-one chat)', () => {
+    it('returns null without touching disk or network when switched off, and logs a missing userId when on', async () => {
+      process.env.ESCALATION_NOTIFY_TO = 'Uresp1';
+      assert.strictEqual(await esc.escalateMedia({ userId: 'Uasker', text: '[使用者傳了圖片]' }, '轉了'), null);
+      assert.strictEqual(sandbox.exists('data'), false);
+      assert.strictEqual(net.calls.length, 0);
+
+      process.env.ESCALATION_ENABLED = '1';
+      assert.strictEqual(await esc.escalateMedia({ text: '[使用者傳了圖片]' }, '轉了'), null);
+      assert.strictEqual(ticketFiles().length, 0);
+      assert.strictEqual(net.calls.length, 0);
+      assert.deepStrictEqual(failures().map((f) => f.reason), ['missing_user_id']);
+    });
+
+    it('keeps every photo of a burst on the ticket but never marks it urgent for them; text follow-ups still count', async () => {
+      process.env.ESCALATION_ENABLED = '1';
+      process.env.ESCALATION_NOTIFY_TO = 'Uresp1,Uresp2';
+      for (let i = 0; i < 4; i += 1) {
+        await esc.escalateMedia({ userId: 'Uasker', text: '[使用者傳了圖片]' }, '轉了');
+      }
+
+      const [file] = ticketFiles();
+      assert.strictEqual(ticketOnDisk(file).follow_up_count, 3, 'every photo is still on the ticket');
+      assert.deepStrictEqual(ticketOnDisk(file).follow_ups.map((f) => f.media), [true, true, true]);
+      assert.strictEqual(ticketOnDisk(file).urgency, 'normal', 'sending a set of photos is not urgency');
+
+      await esc.maybeEscalate({ userId: 'Uasker', text: '有人在嗎' }, TRIGGER_REPLY);
+      assert.strictEqual(ticketOnDisk(file).urgency, 'normal', 'one text follow-up is not enough, however many photos came before');
+      await esc.maybeEscalate({ userId: 'Uasker', text: '還在嗎' }, TRIGGER_REPLY);
+      assert.strictEqual(ticketOnDisk(file).urgency, 'urgent', 'the second text follow-up makes it urgent, as before');
+      await esc.escalateMedia({ userId: 'Uasker', text: '[使用者傳了圖片]' }, '轉了');
+      assert.strictEqual(ticketOnDisk(file).urgency, 'urgent', 'a photo after that does not make it normal again');
+      assert.strictEqual(ticketOnDisk(file).follow_up_count, 6);
+      assert.strictEqual(net.calls.length, 2, 'still one notification per responder');
     });
   });
 
@@ -664,6 +726,229 @@ describe('escalation', () => {
     it('cuts an over-long answer to the 5000 characters LINE allows', async () => {
       await esc.resolve('t1.json', 'a'.repeat(6000), 'Uresp1', { send: true });
       assert.strictEqual(net.calls[0].body.messages[0].text.length, 5000);
+    });
+  });
+
+  describe('push retries (X-Line-Retry-Key)', () => {
+    const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+    const keys = () => net.calls.map((c) => c.headers['X-Line-Retry-Key']);
+    // Answers the calls in order with the given steps; a number is a status, an Error is thrown.
+    const sequence = (...steps) => async () => {
+      const step = steps.shift();
+      if (step instanceof Error) throw step;
+      if (typeof step === 'number') return fakeResponse({ ok: false, status: step, text: `status ${step}` });
+      return step || fakeResponse();
+    };
+
+    beforeEach(() => {
+      seed('t1.json', { userId: 'Uasker', question: '報價多少' });
+    });
+
+    it('retries a 5xx with the same key and the same request, then records ok', async () => {
+      useFetch(sequence(500, 502));
+
+      const done = await esc.resolve('t1.json', '三百元', 'Uresp1', { send: true });
+
+      assert.strictEqual(done.push_status, 'ok');
+      assert.strictEqual(ticketOnDisk('t1.json').push_status, 'ok');
+      assert.strictEqual(net.calls.length, 3);
+      assert.match(keys()[0], UUID);
+      assert.deepStrictEqual(keys(), [keys()[0], keys()[0], keys()[0]], 'every retry reuses the key');
+      for (const call of net.calls) {
+        assert.strictEqual(call.url, PUSH_URL);
+        assert.deepStrictEqual(call.body, net.calls[0].body, 'recipient and content never change');
+      }
+    });
+
+    it('gives every push its own key', async () => {
+      process.env.ESCALATION_NOTIFY_TO = 'Uresp1,Uresp2';
+
+      await esc.notifyResponders({ id: 't1.json', userId: 'Uasker', question: '報價多少' });
+      await esc.resolve('t1.json', '三百元', 'Uresp1', { send: true });
+
+      assert.strictEqual(net.calls.length, 3);
+      for (const key of keys()) assert.match(key, UUID);
+      assert.strictEqual(new Set(keys()).size, 3);
+    });
+
+    it('does not retry a 4xx (429, and a 409 without x-line-accepted-request-id, included) and keeps the error format', async () => {
+      process.env.ESCALATION_NOTIFY_TO = 'Uresp1';
+      const ticket = { id: 't1.json', userId: 'Uasker', question: '問題' };
+
+      for (const status of [400, 403, 409, 429]) {
+        useFetch(failHandler(status, 'nope'));
+        assert.deepStrictEqual(await esc.notifyResponders(ticket), { attempted: 1, ok: 0 });
+        assert.strictEqual(net.calls.length, 1, `${status} is sent once`);
+      }
+      assert.deepStrictEqual(failures().filter((f) => f.reason === 'push_failed').map((f) => f.detail), [
+        'LINE push 400: nope', 'LINE push 403: nope', 'LINE push 409: nope', 'LINE push 429: nope'
+      ]);
+    });
+
+    it('retries a failed fetch (network error or timeout), and counts a 409 with x-line-accepted-request-id as delivered', async () => {
+      // The first request may have reached LINE before timing out; the retry with the same key says so.
+      useFetch(sequence(new Error('timeout'), fakeResponse({
+        ok: false,
+        status: 409,
+        text: '{"message":"The retry key is already accepted"}',
+        headers: { 'x-line-accepted-request-id': 'req-1' }
+      })));
+
+      const done = await esc.resolve('t1.json', '三百元', 'Uresp1', { send: true });
+
+      assert.strictEqual(done.push_status, 'ok');
+      assert.strictEqual(net.calls.length, 2);
+      assert.strictEqual(keys()[0], keys()[1]);
+    });
+
+    it('gives up after 3 tries, throws the last error and still writes both receipts', async () => {
+      useFetch(failHandler(500, 'denied'));
+      const done = await esc.resolve('t1.json', '三百元', 'Uresp1', { send: true });
+
+      assert.strictEqual(net.calls.length, 3);
+      assert.strictEqual(done.push_status, 'failed: LINE push 500: denied');
+      assert.strictEqual(ticketOnDisk('t1.json').push_status, 'failed: LINE push 500: denied');
+      assert.strictEqual(ticketOnDisk('t1.json').status, 'resolved');
+
+      process.env.ESCALATION_NOTIFY_TO = 'Uresp1';
+      useFetch(async () => { throw new Error('getaddrinfo ENOTFOUND api.line.me'); });
+      const outcome = await esc.notifyResponders({ id: 't2.json', userId: 'Uasker', question: '問題' });
+
+      assert.deepStrictEqual(outcome, { attempted: 1, ok: 0 });
+      assert.strictEqual(net.calls.length, 3);
+      assert.deepStrictEqual(failures().map((f) => [f.reason, f.ticket_id, f.detail]), [
+        ['push_failed', 't2.json', 'getaddrinfo ENOTFOUND api.line.me'],
+        ['all_push_failed', 't2.json', null]
+      ]);
+    });
+
+    it('ESCALATION_PUSH_ATTEMPTS sets the tries: 1 means no retry and no key, at most 5', async () => {
+      process.env.ESCALATION_PUSH_ATTEMPTS = '1';
+      useFetch(failHandler(500, 'down'));
+      await esc.resolve('t1.json', '三百元', 'Uresp1', { send: true });
+      assert.strictEqual(net.calls.length, 1);
+      assert.strictEqual('X-Line-Retry-Key' in net.calls[0].headers, false, 'same request as before retries existed');
+
+      process.env.ESCALATION_PUSH_ATTEMPTS = '99';
+      useFetch(failHandler(500, 'down'));
+      await esc.resolve('t1.json', '三百元', 'Uresp1', { send: true });
+      assert.strictEqual(net.calls.length, 5);
+    });
+
+    it('ESCALATION_PUSH_ATTEMPTS: a value that is not a number falls back to 3 tries, 0 or below means no retry', async () => {
+      for (const [value, tries] of [['abc', 3], ['3次', 3], ['0', 1], ['-2', 1]]) {
+        process.env.ESCALATION_PUSH_ATTEMPTS = value;
+        useFetch(failHandler(500, 'down'));
+        await esc.resolve('t1.json', '三百元', 'Uresp1', { send: true });
+        assert.strictEqual(net.calls.length, tries, `ESCALATION_PUSH_ATTEMPTS=${value}`);
+        assert.strictEqual('X-Line-Retry-Key' in net.calls[0].headers, tries > 1, `ESCALATION_PUSH_ATTEMPTS=${value}: key only when retrying`);
+      }
+    });
+
+    it('waits longer before each retry (exponential backoff)', async () => {
+      process.env.ESCALATION_PUSH_RETRY_MS = '20';
+      const sentAt = [];
+      useFetch(async () => {
+        sentAt.push(performance.now());
+        return fakeResponse({ ok: false, status: 500, text: 'down' });
+      });
+
+      await esc.resolve('t1.json', '三百元', 'Uresp1', { send: true });
+
+      assert.strictEqual(sentAt.length, 3);
+      const gaps = [sentAt[1] - sentAt[0], sentAt[2] - sentAt[1]];
+      // Lower bounds only (a timer is never meaningfully early); 2 ms of slack for timer rounding.
+      assert.ok(gaps[0] >= 18 && gaps[1] >= 38, `expected about 20 ms then 40 ms, got ${gaps.map((g) => g.toFixed(1)).join(' ms, ')} ms`);
+    });
+
+    // Virtual clock for the tests below: every sleep is recorded and returns at once, and Date.now
+    // moves forward by the same amount, so long waits can be checked without waiting.
+    // advance(ms) makes a fake LINE take that long to answer.
+    function virtualClock() {
+      let now = Date.now();
+      const start = now;
+      const sleeps = [];
+      const realSetTimeout = setTimeout;
+      mock.method(Date, 'now', () => now);
+      mock.method(globalThis, 'setTimeout', (fn, ms) => {
+        sleeps.push(ms);
+        now += ms;
+        return realSetTimeout(fn, 0);
+      });
+      return { sleeps, advance: (ms) => { now += ms; }, elapsed: () => now - start };
+    }
+
+    it('also waits before retrying a failed fetch (network error or timeout), not only a 5xx', async () => {
+      process.env.ESCALATION_PUSH_RETRY_MS = '20';
+      const clock = virtualClock();
+      useFetch(sequence(new Error('timeout'), new Error('getaddrinfo ENOTFOUND api.line.me')));
+
+      const done = await esc.resolve('t1.json', '三百元', 'Uresp1', { send: true });
+
+      assert.strictEqual(done.push_status, 'ok');
+      assert.strictEqual(net.calls.length, 3);
+      assert.deepStrictEqual(clock.sleeps, [20, 40]);
+    });
+
+    it('ESCALATION_PUSH_RETRY_MS: a value that is not a number or is below 0 falls back to 500 ms', async () => {
+      const clock = virtualClock();
+      for (const value of ['abc', '-1', 'Infinity']) {
+        process.env.ESCALATION_PUSH_RETRY_MS = value;
+        clock.sleeps.length = 0;
+        useFetch(failHandler(500, 'down'));
+        await esc.resolve('t1.json', '三百元', 'Uresp1', { send: true });
+        assert.deepStrictEqual(clock.sleeps, [500, 1000], `ESCALATION_PUSH_RETRY_MS=${value}`);
+      }
+    });
+
+    it('ESCALATION_PUSH_RETRY_MS is capped at 5000 ms', async () => {
+      process.env.ESCALATION_PUSH_RETRY_MS = '30000';
+      const clock = virtualClock();
+      useFetch(failHandler(500, 'down'));
+
+      const done = await esc.resolve('t1.json', '三百元', 'Uresp1', { send: true });
+
+      assert.deepStrictEqual(clock.sleeps, [5000], 'waits 5 s once; the next wait (10 s) would end after the 10 s retry window');
+      assert.strictEqual(net.calls.length, 2);
+      assert.strictEqual(done.push_status, 'failed: LINE push 500: down');
+    });
+
+    it('keeps the retries of a whole notification within 10 s, whatever the settings and however many responders', async () => {
+      // The ticket notification is awaited before the asker gets a reply, and a reply token lasts
+      // one minute; a retry key lasts 24 hours. Neither may be outrun by retries.
+      process.env.ESCALATION_ENABLED = '1';
+      process.env.ESCALATION_NOTIFY_TO = 'Uresp1,Uresp2,Uresp3';
+      const clock = virtualClock();
+
+      for (const [retryMs, attempts] of [['500', '5'], ['30000', '3'], ['7200000', '5']]) {
+        process.env.ESCALATION_PUSH_RETRY_MS = retryMs;
+        process.env.ESCALATION_PUSH_ATTEMPTS = attempts;
+        const label = `RETRY_MS=${retryMs} ATTEMPTS=${attempts}`;
+        fs.rmSync(sandbox.path(ESC_DIR), { recursive: true, force: true });
+        useFetch(failHandler(500, 'down'));
+        const before = clock.elapsed();
+
+        const result = await esc.maybeEscalate({ userId: 'Uasker', text: '報價多少' }, TRIGGER_REPLY);
+
+        assert.strictEqual(result, `${TRIGGER_REPLY}\n\n${ACK}`, label);
+        assert.ok(clock.elapsed() - before <= 10000, `${label}: took ${clock.elapsed() - before} ms`);
+        assert.deepStrictEqual([...new Set(pushedTo())], ['Uresp1', 'Uresp2', 'Uresp3'], `${label}: every responder still gets a try`);
+        assert.deepStrictEqual(failures().map((f) => f.reason), ['push_failed', 'push_failed', 'push_failed', 'all_push_failed'], label);
+      }
+    });
+
+    it('starts no retry once 10 s have passed, so slow 5xx answers are not tried again and again', async () => {
+      const clock = virtualClock();
+      useFetch(async () => {
+        clock.advance(25000);
+        return fakeResponse({ ok: false, status: 504, text: 'gateway timeout' });
+      });
+
+      const done = await esc.resolve('t1.json', '三百元', 'Uresp1', { send: true });
+
+      assert.strictEqual(net.calls.length, 1);
+      assert.strictEqual(clock.elapsed(), 25000);
+      assert.strictEqual(done.push_status, 'failed: LINE push 504: gateway timeout');
     });
   });
 

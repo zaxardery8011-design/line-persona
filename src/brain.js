@@ -31,7 +31,7 @@ async function handleMessage(ctx) {
 
   try {
     const reply = await chat(messages);
-    if (historyKey) history.record(historyKey, ctx.text, reply);
+    if (historyKey) history.record(historyKey, ctx.text, reply, ctx.userId, ctx.timestamp, ctx.messageId);
     // 轉真人閉環是選配的：.env 沒設 ESCALATION_ENABLED 時 maybeEscalate 原樣返回
     return await maybeEscalate(ctx, reply);
   } catch (error) {
