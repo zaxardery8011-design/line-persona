@@ -166,6 +166,27 @@ describe('server webhook', () => {
       assert.strictEqual(chatCalls.length, 0);
     });
 
+    it('answers a bad signature with a short JSON 401', async () => {
+      await boot();
+      const body = JSON.stringify({ destination: 'Udest', events: [textEvent('hi')] });
+
+      const res = await webhook(null, { rawBody: body, signature: sign('some-other-secret', body) });
+
+      assert.strictEqual(res.status, 401);
+      assert.deepStrictEqual(JSON.parse(res.text), { error: 'Invalid signature' });
+    });
+
+    it('answers a signed body that is not JSON with a short JSON 400', async () => {
+      await boot();
+      const body = '{not json';
+
+      const res = await webhook(null, { rawBody: body, signature: sign(SECRET, body) });
+
+      assert.strictEqual(res.status, 400);
+      assert.deepStrictEqual(JSON.parse(res.text), { error: 'Invalid JSON' });
+      assert.strictEqual(chatCalls.length, 0);
+    });
+
     it('answers 503 and never reaches the brain when LINE_CHANNEL_SECRET is not set', async () => {
       await boot({ LINE_CHANNEL_SECRET: '' });
 

@@ -58,6 +58,18 @@ app.post('/webhook', bodySizeLimit(limits.maxBodyBytes), lineMiddleware(), async
   }
 });
 
+// Return short JSON errors from /webhook instead of the default handler.
+app.use('/webhook', (err, _req, res, _next) => {
+  if (err instanceof line.SignatureValidationFailed) {
+    res.status(401).json({ error: 'Invalid signature' });
+  } else if (err instanceof line.JSONParseError) {
+    res.status(400).json({ error: 'Invalid JSON' });
+  } else {
+    console.error('Webhook request failed:', err.message);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+});
+
 function lineMiddleware() {
   if (!lineConfig.channelSecret) {
     return (_req, res) => {
