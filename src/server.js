@@ -49,6 +49,11 @@ app.get('/', (_req, res) => {
 });
 
 app.post('/webhook', bodySizeLimit(limits.maxBodyBytes), lineMiddleware(), async (req, res) => {
+  // 簽章對、但 body 不是 { events: [...] } 的請求：回 400，不當成伺服器錯誤
+  if (!req.body || !Array.isArray(req.body.events)) {
+    res.status(400).json({ error: 'Invalid events' });
+    return;
+  }
   try {
     const results = await Promise.all(req.body.events.map(handleEvent));
     res.status(200).json(results);
