@@ -409,7 +409,7 @@ async function remind(days, options) {
 async function readFlowState() {
   try {
     const parsed = JSON.parse(await fsp.readFile(FLOW_STATE_PATH, 'utf8'));
-    return parsed && typeof parsed === 'object' ? parsed : {};
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
   } catch (error) {
     if (error.code === 'ENOENT') return {};
     console.warn('[escalation] _flow_state.json 讀不到，重建:', error.message);
