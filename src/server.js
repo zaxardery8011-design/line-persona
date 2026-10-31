@@ -88,6 +88,10 @@ function lineMiddleware() {
 }
 
 async function handleEvent(event) {
+  // 不是物件的事件、或沒有 message 的 message 事件：跳過，不讓同一批的其他事件跟著失敗
+  if (!event || typeof event !== 'object' || (event.type === 'message' && !event.message)) {
+    return null;
+  }
   const userId = event.source && event.source.userId;
   if (event.type === 'message' && !userLimiter.allow(userId)) {
     // 超量：不進 LLM、不回覆，避免同一個使用者刷爆花費
